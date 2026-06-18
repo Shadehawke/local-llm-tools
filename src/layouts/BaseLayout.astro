@@ -33,6 +33,11 @@ const canonicalUrl = new URL(path, Astro.site).toString();
     <meta name="twitter:description" content={description} />
 
     <slot name="head" />
+
+    <!-- Cloudflare Web Analytics -->
+    <script defer src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "af4b40f791cd4e8c968ccf32453e7e66"}'>
+    </script>
+    <!-- End Cloudflare Web Analytics -->
   </head>
   <body class="min-h-screen flex flex-col">
     <header class="border-b border-base-700">
@@ -52,7 +57,7 @@ const canonicalUrl = new URL(path, Astro.site).toString();
 
     <footer class="border-t border-base-700 mt-auto">
       <div class="max-w-5xl mx-auto px-4 py-8 text-sm text-base-400">
-        <p>Built and tested against real local LLM hardware. No tracking, no accounts required.</p>
+        <p><p>Built and tested against real local LLM hardware. Privacy-respecting analytics only — no cookies, no cross-site tracking, no accounts required.</p></p>
       </div>
     </footer>
   </body>
