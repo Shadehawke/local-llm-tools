@@ -1,0 +1,35 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { TOOLS } from "../../data/tools";
+
+const title = "All Tools — Local LLM Tools";
+const description = "Browse all local LLM calculators and utilities.";
+---
+
+<BaseLayout title={title} description={description} path="/tools">
+  <h1 class="text-3xl font-bold text-base-50 mb-8">All Tools</h1>
+
+  <div class="grid sm:grid-cols-2 gap-4">
+    {TOOLS.map((tool) => (
+      <a
+        href={tool.status === "live" ? `/tools/${tool.slug}` : "#"}
+        class:list={[
+          "block border rounded-xl p-5 transition-colors",
+          tool.status === "live"
+            ? "border-base-700 bg-base-900 hover:border-accent-500"
+            : "border-base-800 bg-base-900/50 opacity-60 cursor-not-allowed pointer-events-none",
+        ]}
+      >
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold text-base-50">{tool.title}</h2>
+          {tool.status === "coming-soon" && (
+            <span class="text-xs text-base-400 border border-base-700 rounded px-2 py-0.5">
+              soon
+            </span>
+          )}
+        </div>
+        <p class="text-sm text-base-400">{tool.shortDescription}</p>
+      </a>
+    ))}
+  </div>
+</BaseLayout>

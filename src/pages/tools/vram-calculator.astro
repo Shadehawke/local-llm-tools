@@ -1,0 +1,356 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { MODEL_ARCHITECTURES } from "../../data/models";
+import { QUANT_FORMATS } from "../../data/quants";
+
+const title = "VRAM Calculator for Local LLMs — Will It Fit Your GPU?";
+const description =
+  "Calculate exact VRAM needed to run Qwen3, Llama 3.1, Mistral, and other models locally at any quantization and context length. Includes KV cache, not just model weights.";
+
+const faqs = [
+  {
+    question: "Why does this calculator give different numbers than other VRAM calculators?",
+    answer:
+      "Most calculators only account for model weight size and ignore KV cache, which scales with context length. A model that fits comfortably at 2K context can run out of memory at 32K context purely from KV cache growth. This calculator separates both terms so you can see exactly where your VRAM is going.",
+  },
+  {
+    question: "What's the difference between Q4_K_M and Q8_0?",
+    answer:
+      "Q4_K_M uses roughly 0.55 bytes per parameter with mixed-precision blocks, producing smaller files with a modest quality tradeoff. Q8_0 uses roughly 1 byte per parameter and is close to lossless compared to full FP16 precision. Q4_K_M is the practical default for most consumer GPUs; Q8_0 is worth it if you have VRAM to spare.",
+  },
+  {
+    question: "Does KV cache quantization change these numbers?",
+    answer:
+      "This calculator assumes KV cache stored at FP16 (2 bytes per value), which is the common default in llama.cpp and Ollama. Some setups support quantized KV cache (e.g. Q8 or Q4 KV cache) to reduce this further, which would lower the KV cache portion of the estimate proportionally.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/tools/vram-calculator">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/tools" class="hover:text-base-200">Tools</a> /
+    <span class="text-base-200">VRAM Calculator</span>
+  </nav>
+
+  <h1 class="text-3xl font-bold text-base-50 mb-3">VRAM Calculator for Local LLMs</h1>
+  <p class="text-base-400 mb-10 max-w-2xl">
+    Estimate exact VRAM needed for model weights plus KV cache — the part most
+    calculators skip, and the reason a model that loads fine at low context can
+    still run out of memory once you ask it something long.
+  </p>
+
+  <div class="grid md:grid-cols-2 gap-8">
+    <section class="bg-base-900 border border-base-700 rounded-xl p-6 space-y-5">
+      <div>
+        <label for="model-select" class="block text-sm font-medium text-base-200 mb-2">
+          Model
+        </label>
+        <select
+          id="model-select"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          {MODEL_ARCHITECTURES.map((model) => (
+            <option value={model.id}>{model.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <div id="custom-model-fields" class="hidden space-y-3 border-t border-base-700 pt-4">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="custom-params" class="block text-xs text-base-400 mb-1">Params (B)</label>
+            <input
+              id="custom-params"
+              type="number"
+              step="0.1"
+              class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+            />
+          </div>
+          <div>
+            <label for="custom-layers" class="block text-xs text-base-400 mb-1">Layers</label>
+            <input
+              id="custom-layers"
+              type="number"
+              class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+            />
+          </div>
+          <div>
+            <label for="custom-kv-heads" class="block text-xs text-base-400 mb-1">KV heads</label>
+            <input
+              id="custom-kv-heads"
+              type="number"
+              class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+            />
+          </div>
+          <div>
+            <label for="custom-head-dim" class="block text-xs text-base-400 mb-1">Head dim</label>
+            <input
+              id="custom-head-dim"
+              type="number"
+              class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+            />
+          </div>
+        </div>
+        <p class="text-xs text-base-400">
+          Find these in the model's <code class="text-accent-300">config.json</code> on Hugging Face
+          (num_hidden_layers, num_key_value_heads, head_dim).
+        </p>
+      </div>
+
+      <div>
+        <label for="quant-select" class="block text-sm font-medium text-base-200 mb-2">
+          Quantization
+        </label>
+        <select
+          id="quant-select"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          {QUANT_FORMATS.map((quant) => (
+            <option value={quant.id}>{quant.label} — {quant.description}</option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label for="context-length" class="block text-sm font-medium text-base-200 mb-2">
+          Context length: <span id="context-length-display" class="text-accent-300 font-mono-display">8192</span> tokens
+        </label>
+        <input
+          id="context-length"
+          type="range"
+          min="512"
+          max="131072"
+          step="512"
+          value="8192"
+          class="w-full"
+        />
+      </div>
+
+      <div>
+        <label for="batch-size" class="block text-sm font-medium text-base-200 mb-2">
+          Batch size (concurrent requests)
+        </label>
+        <input
+          id="batch-size"
+          type="number"
+          min="1"
+          value="1"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+        />
+      </div>
+
+      <div>
+        <label for="available-vram" class="block text-sm font-medium text-base-200 mb-2">
+          Your GPU VRAM (GB)
+        </label>
+        <input
+          id="available-vram"
+          type="number"
+          step="0.5"
+          value="12"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+        />
+      </div>
+    </section>
+
+    <section class="bg-base-900 border border-base-700 rounded-xl p-6">
+      <h2 class="text-lg font-semibold text-base-50 mb-4">Estimated VRAM usage</h2>
+
+      <div id="result-fit-banner" class="rounded-lg px-4 py-3 mb-5 font-medium"></div>
+
+      <dl class="space-y-3 font-mono-display text-sm">
+        <div class="flex justify-between border-b border-base-700 pb-2">
+          <dt class="text-base-400">Model weights</dt>
+          <dd id="result-weights" class="text-base-50">—</dd>
+        </div>
+        <div class="flex justify-between border-b border-base-700 pb-2">
+          <dt class="text-base-400">KV cache</dt>
+          <dd id="result-kv-cache" class="text-base-50">—</dd>
+        </div>
+        <div class="flex justify-between border-b border-base-700 pb-2">
+          <dt class="text-base-400">Overhead (CUDA/framework)</dt>
+          <dd id="result-overhead" class="text-base-50">—</dd>
+        </div>
+        <div class="flex justify-between pt-1 text-base font-semibold">
+          <dt class="text-base-200">Total</dt>
+          <dd id="result-total" class="text-accent-300">—</dd>
+        </div>
+      </dl>
+
+      <div class="mt-6 pt-5 border-t border-base-700">
+        <p class="text-sm text-base-400 mb-1">Max context length that fits your VRAM:</p>
+        <p id="result-max-context" class="text-2xl font-mono-display text-base-50">—</p>
+      </div>
+    </section>
+  </div>
+
+  <section class="mt-14 space-y-6 max-w-3xl">
+    <h2 class="text-2xl font-bold text-base-50">How this is calculated</h2>
+    <p class="text-base-400">
+      Total VRAM is the sum of three components, calculated separately rather than
+      estimated as a single multiplier:
+    </p>
+    <div class="space-y-4">
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-50 mb-1">Model weights</h3>
+        <p class="text-sm text-base-400">
+          Parameter count × effective bytes-per-parameter for the chosen quantization.
+          GGUF K-quants use mixed precision and block-wise scale factors, so this isn't
+          a flat bit-count division — the values used here are calibrated against real
+          GGUF file sizes.
+        </p>
+      </div>
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-50 mb-1">KV cache</h3>
+        <p class="text-sm text-base-400">
+          2 × layers × KV heads × head dimension × context length × 2 bytes × batch size.
+          This is the term that grows with context length and is usually why a model
+          that loads fine at short context runs out of memory on long conversations.
+        </p>
+      </div>
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-50 mb-1">Overhead</h3>
+        <p class="text-sm text-base-400">
+          A fixed ~0.6GB buffer for CUDA context initialization and inference framework
+          overhead. Actual overhead varies slightly by backend (llama.cpp, vLLM, etc.).
+        </p>
+      </div>
+    </div>
+    <p class="text-sm text-base-400">
+      Verified against a real Qwen3-14B Q8_0 load on an RTX 3060 12GB: predicted weight
+      size alone (≈13.8GB) correctly exceeds 12GB, matching the observed out-of-memory
+      result, while Q4_K_M (≈7.6GB) correctly fits with room for substantial context.
+    </p>
+  </section>
+
+  <section class="mt-14 space-y-5 max-w-3xl">
+    <h2 class="text-2xl font-bold text-base-50">FAQ</h2>
+    {faqs.map((faq) => (
+      <div>
+        <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+        <p class="text-sm text-base-400">{faq.answer}</p>
+      </div>
+    ))}
+  </section>
+
+  <script>
+    import { MODEL_ARCHITECTURES, getModelById, type ModelArchitecture } from "../../data/models";
+    import { QUANT_FORMATS, getQuantById } from "../../data/quants";
+    import { estimateVram, maxContextForVram } from "../../lib/vramCalculator";
+
+    const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
+    const customFields = document.getElementById("custom-model-fields") as HTMLDivElement;
+    const customParams = document.getElementById("custom-params") as HTMLInputElement;
+    const customLayers = document.getElementById("custom-layers") as HTMLInputElement;
+    const customKvHeads = document.getElementById("custom-kv-heads") as HTMLInputElement;
+    const customHeadDim = document.getElementById("custom-head-dim") as HTMLInputElement;
+    const quantSelect = document.getElementById("quant-select") as HTMLSelectElement;
+    const contextLengthInput = document.getElementById("context-length") as HTMLInputElement;
+    const contextLengthDisplay = document.getElementById("context-length-display") as HTMLSpanElement;
+    const batchSizeInput = document.getElementById("batch-size") as HTMLInputElement;
+    const availableVramInput = document.getElementById("available-vram") as HTMLInputElement;
+
+    const resultWeights = document.getElementById("result-weights") as HTMLElement;
+    const resultKvCache = document.getElementById("result-kv-cache") as HTMLElement;
+    const resultOverhead = document.getElementById("result-overhead") as HTMLElement;
+    const resultTotal = document.getElementById("result-total") as HTMLElement;
+    const resultMaxContext = document.getElementById("result-max-context") as HTMLElement;
+    const fitBanner = document.getElementById("result-fit-banner") as HTMLDivElement;
+
+    function getCurrentModel(): ModelArchitecture {
+      if (modelSelect.value === "custom") {
+        return {
+          id: "custom",
+          label: "Custom",
+          paramsBillion: Number(customParams.value) || 0,
+          numLayers: Number(customLayers.value) || 0,
+          numKvHeads: Number(customKvHeads.value) || 0,
+          headDim: Number(customHeadDim.value) || 0,
+          nativeContextLength: 8192,
+        };
+      }
+      return getModelById(modelSelect.value);
+    }
+
+    function formatGiB(value: number): string {
+      return `${value.toFixed(2)} GB`;
+    }
+
+    function formatTokens(value: number): string {
+      if (value <= 0) return "0 tokens";
+      return `${value.toLocaleString()} tokens`;
+    }
+
+    function recalculate() {
+      const model = getCurrentModel();
+      const quant = getQuantById(quantSelect.value);
+      const contextLength = Number(contextLengthInput.value);
+      const batchSize = Math.max(1, Number(batchSizeInput.value) || 1);
+      const availableVram = Number(availableVramInput.value) || 0;
+
+      contextLengthDisplay.textContent = contextLength.toLocaleString();
+
+      if (model.paramsBillion <= 0 || model.numLayers <= 0) {
+        // Custom model fields not yet filled in — show placeholder state, don't crash.
+        resultWeights.textContent = "—";
+        resultKvCache.textContent = "—";
+        resultOverhead.textContent = "—";
+        resultTotal.textContent = "—";
+        resultMaxContext.textContent = "—";
+        fitBanner.textContent = "Enter custom model parameters to calculate.";
+        fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
+        return;
+      }
+
+      const result = estimateVram({ model, quant, contextLength, batchSize });
+
+      resultWeights.textContent = formatGiB(result.weightsGiB);
+      resultKvCache.textContent = formatGiB(result.kvCacheGiB);
+      resultOverhead.textContent = formatGiB(result.overheadGiB);
+      resultTotal.textContent = formatGiB(result.totalGiB);
+
+      const fits = result.totalGiB <= availableVram;
+      const maxContext = maxContextForVram(availableVram, model, quant, batchSize);
+      resultMaxContext.textContent = formatTokens(maxContext);
+
+      if (fits) {
+        fitBanner.textContent = `✓ Fits comfortably in ${availableVram}GB VRAM`;
+        fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-good/10 text-signal-good border border-signal-good/30";
+      } else {
+        const overBy = result.totalGiB - availableVram;
+        fitBanner.textContent = `✗ Exceeds ${availableVram}GB VRAM by ${overBy.toFixed(2)}GB`;
+        fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-bad/10 text-signal-bad border border-signal-bad/30";
+      }
+    }
+
+    modelSelect.addEventListener("change", () => {
+      customFields.classList.toggle("hidden", modelSelect.value !== "custom");
+      recalculate();
+    });
+
+    [quantSelect, contextLengthInput, batchSizeInput, availableVramInput,
+     customParams, customLayers, customKvHeads, customHeadDim].forEach((el) => {
+      el.addEventListener("input", recalculate);
+    });
+
+    recalculate();
+  </script>
+</BaseLayout>

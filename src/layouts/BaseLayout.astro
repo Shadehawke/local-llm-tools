@@ -1,0 +1,59 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description: string;
+  /** Canonical path, e.g. "/tools/vram-calculator" */
+  path: string;
+}
+
+const { title, description, path } = Astro.props;
+const canonicalUrl = new URL(path, Astro.site).toString();
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalUrl} />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+
+    <slot name="head" />
+  </head>
+  <body class="min-h-screen flex flex-col">
+    <header class="border-b border-base-700">
+      <nav class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+        <a href="/" class="font-mono-display text-lg font-semibold text-base-50">
+          local<span class="text-accent-400">llm</span>tools
+        </a>
+        <a href="/tools" class="text-sm text-base-400 hover:text-base-200 transition-colors">
+          All tools
+        </a>
+      </nav>
+    </header>
+
+    <main class="flex-1 max-w-5xl mx-auto px-4 py-10 w-full">
+      <slot />
+    </main>
+
+    <footer class="border-t border-base-700 mt-auto">
+      <div class="max-w-5xl mx-auto px-4 py-8 text-sm text-base-400">
+        <p>Built and tested against real local LLM hardware. No tracking, no accounts required.</p>
+      </div>
+    </footer>
+  </body>
+</html>

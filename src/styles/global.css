@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/*
+ * Custom theme tokens via Tailwind v4's CSS-first config (no tailwind.config.js needed).
+ * Dark-first palette: this audience runs local LLMs at night next to a GPU fan —
+ * dark mode isn't a toggle, it's the default expectation.
+ */
+@theme {
+  --color-base-950: #0a0a0f;
+  --color-base-900: #13131a;
+  --color-base-800: #1c1c26;
+  --color-base-700: #2a2a38;
+  --color-base-600: #3d3d52;
+  --color-base-400: #8888a0;
+  --color-base-200: #d4d4e0;
+  --color-base-50: #f5f5fa;
+
+  --color-accent-500: #6366f1;
+  --color-accent-400: #818cf8;
+  --color-accent-300: #a5b4fc;
+
+  --color-signal-good: #34d399;
+  --color-signal-warn: #fbbf24;
+  --color-signal-bad: #f87171;
+
+  --font-mono-display: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+html {
+  background-color: var(--color-base-950);
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-base-950);
+  color: var(--color-base-200);
+}

@@ -1,0 +1,41 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { TOOLS } from "../data/tools";
+
+const title = "Local LLM Tools — Calculators for Running Models on Your Own GPU";
+const description =
+  "Free calculators and utilities for running LLMs locally: VRAM requirements, quantization sizing, context costs, and more. Tested against real hardware.";
+---
+
+<BaseLayout title={title} description={description} path="/">
+  <h1 class="text-4xl font-bold text-base-50 mb-4">Local LLM Tools</h1>
+  <p class="text-base-400 max-w-2xl mb-10">
+    Calculators built and verified against real local inference setups — not
+    just theoretical numbers. Figure out what fits your GPU before you download
+    a 15GB model and find out the hard way.
+  </p>
+
+  <div class="grid sm:grid-cols-2 gap-4">
+    {TOOLS.map((tool) => (
+      <a
+        href={tool.status === "live" ? `/tools/${tool.slug}` : "#"}
+        class:list={[
+          "block border rounded-xl p-5 transition-colors",
+          tool.status === "live"
+            ? "border-base-700 bg-base-900 hover:border-accent-500"
+            : "border-base-800 bg-base-900/50 opacity-60 cursor-not-allowed pointer-events-none",
+        ]}
+      >
+        <div class="flex items-center justify-between mb-2">
+          <h2 class="font-semibold text-base-50">{tool.title}</h2>
+          {tool.status === "coming-soon" && (
+            <span class="text-xs text-base-400 border border-base-700 rounded px-2 py-0.5">
+              soon
+            </span>
+          )}
+        </div>
+        <p class="text-sm text-base-400">{tool.shortDescription}</p>
+      </a>
+    ))}
+  </div>
+</BaseLayout>
