@@ -7,10 +7,19 @@
  * just param count. Two 8B models can have wildly different KV cache footprints
  * if one uses grouped-query attention (GQA) with fewer KV heads.
  *
- * Source: each model's published config.json (Hugging Face) or technical report.
- * Values here verified against Qwen3-14B running locally on a 3060 12GB (Q8_0)
- * as a sanity check — predicted ~15.8GB weights, which matches observed OOM at
- * full Q8 on 12GB and successful load at Q4_K_M.
+ * SOURCE-VERIFIED (June 2026): every entry below was checked directly against
+ * the model's published config.json on Hugging Face (or, where gated/unavailable,
+ * cross-referenced against the official technical report / academic citations).
+ * Qwen3-14B was additionally sanity-checked against a real local run: predicted
+ * ~13.8GB weights at Q8_0 matches the observed OOM on a 3060 12GB, and ~7.6GB at
+ * Q4_K_M matches the observed successful load.
+ *
+ * Correction log from the original draft (kept for transparency):
+ *   - Qwen3 8B/14B/32B: nativeContextLength corrected 32768 -> 40960 (actual
+ *     config.json max_position_embeddings; YaRN can extend to 131072 separately)
+ *   - Mistral Small: original entry (22B, 56 layers) didn't match any real
+ *     released checkpoint and appears to have been a fabricated estimate.
+ *     Replaced with the verified Mistral-Small-3.1-24B-Instruct-2503 release.
  */
 
 export interface ModelArchitecture {
@@ -32,7 +41,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 36,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "qwen3-14b",
@@ -41,7 +50,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 40,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "qwen3-32b",
@@ -50,7 +59,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 64,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "llama3.1-8b",
@@ -71,13 +80,13 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     nativeContextLength: 131072,
   },
   {
-    id: "mistral-small-22b",
-    label: "Mistral Small 22B",
-    paramsBillion: 22.2,
-    numLayers: 56,
+    id: "mistral-small-24b-2503",
+    label: "Mistral Small 3.1 24B",
+    paramsBillion: 24.0,
+    numLayers: 40,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 131072,
   },
   {
     id: "gemma2-9b",

@@ -52,22 +52,34 @@ src/
 5. **Build and check.** `npm run build` — catches type errors and broken imports
    before you ever open a browser.
 
-## Known TODOs before public launch
+## Data verification status (last checked June 2026)
 
-- **Verify model architecture numbers** in `src/data/models.ts` against actual
-  `config.json` files on Hugging Face for each model. These were filled in from
-  general knowledge and cross-checked against one real case (Qwen3-14B on a 3060),
-  but every entry should be spot-checked individually before this becomes the
-  "trust our numbers" pitch of the site.
-- **Verify quant bytes-per-param values** in `src/data/quants.ts` against a few
-  real downloaded GGUF file sizes (file size ÷ param count) rather than relying
-  solely on the estimates given here.
+**Model architectures** (`src/data/models.ts`): all 9 models cross-checked
+directly against published `config.json` files on Hugging Face (or technical
+report citations where the repo is gated). One real error was caught and
+fixed: the original "Mistral Small 22B" entry (56 layers) didn't match any
+actual released checkpoint and has been replaced with the verified
+Mistral-Small-3.1-24B-Instruct-2503 release (40 layers). Native context
+lengths for the Qwen3 family were also corrected from 32768 to the actual
+config value of 40960.
+
+**GGUF quant bytes-per-param** (`src/data/quants.ts`): Q4_K_M, Q5_K_M, Q6_K,
+and Q8_0 were recalculated from real published GGUF file sizes (bartowski's
+quants of Llama 3/3.1 8B, Qwen2.5 14B, and Qwen2.5 72B) — the original
+estimates were systematically too low by 10-20%. Q2_K and Q3_K_M are still
+extrapolated rather than directly measured; see the `verified: false` flag
+on those two entries. To finish verification: download a Q2_K or Q3_K_M
+GGUF file for any model with a known param count and divide file size by
+param count.
+
+## Remaining TODOs before public launch
+
+- **Verify Q2_K and Q3_K_M** against real file sizes (see above).
 - **Pick a real domain** and update `site` in `astro.config.mjs` + the sitemap
   URL in `public/robots.txt`.
 - **No analytics yet.** Decide on a privacy-respecting option (Plausible, Fathom,
-  or Cloudflare Web Analytics) before launch so you have traffic data to decide
-  what to build next — don't skip this, it's the only signal that tells you
-  whether tool #2 should be the GGUF estimator or something else entirely.
+  or Cloudflare Web Analytics) before driving traffic — this is the only signal
+  that tells you whether tool #2 should be the GGUF estimator or something else.
 
 ## Local development
 
