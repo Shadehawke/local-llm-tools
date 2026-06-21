@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://local-llm-tools.pages.dev/sitemap-index.xml
+Sitemap: https://llmfit.dev/sitemap-index.xml

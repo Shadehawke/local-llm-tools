@@ -7,7 +7,7 @@ import sitemap from '@astrojs/sitemap';
 // No SSR server needed — these are client-side calculators, so static hosting
 // (Cloudflare Pages) is both simpler and faster than running a Node server.
 export default defineConfig({
-  site: 'https://local-llm-tools.pages.dev', // update once a real domain is chosen
+  site: 'https://llmfit.dev',
   output: 'static',
   integrations: [sitemap()],
   vite: {
