@@ -2,22 +2,22 @@
  * GGUF quantization formats and their effective bytes-per-weight.
  *
  * "Effective" matters because formats like Q4_K_M aren't a flat 4 bits per
- * weight — they use mixed precision (some tensors at higher bits than others)
- * plus per-block scale factors, and the GGUF file also carries the embedding
- * table, output head, and metadata, which don't shrink at the same rate as
- * the transformer layers. The naive "Q4 = 4 bits / 8 = 0.5 bytes" math that
- * most calculators use undershoots real file size noticeably.
+ * weight — they use mixed precision plus per-block scale factors, and the GGUF
+ * file also carries the embedding table, output head, and metadata, which don't
+ * shrink at the same rate as the transformer layers.
  *
- * VERIFIED against actual bartowski-published GGUF file sizes (June 2026):
- *   - Q4_K_M: Llama 3 8B (4.92GB), Qwen2.5 14B (8.99GB), Qwen2.5 72B (47.4GB)
- *     -> averaged 0.672 bytes/param across all three sizes
- *   - Q5_K_M: Llama 3.1 8B (5.73GB) -> 0.766 bytes/param
- *   - Q6_K: Llama 3 8B (6.6GB) -> 0.883 bytes/param
- *   - Q8_0: Llama 3 8B (8.54GB) -> 1.142 bytes/param
- * Q2_K and Q3_K_M are NOT yet directly verified against real files — these
- * are estimated by applying the average correction ratio (~1.15x) observed
- * across the verified quants above. Replace with real measurements when
- * convenient (download a Q2_K/Q3_K_M file, divide size by param count).
+ * K-QUANT VERIFICATION (June 2026):
+ *   Calibrated against bartowski GGUF file sizes for Llama 3/3.1 8B,
+ *   Qwen2.5 14B, and Qwen2.5 72B. Q4_K_S and Q5_K_S are interpolated
+ *   from adjacent verified values (verified: false).
+ *
+ * I-QUANT VERIFICATION (June 2026):
+ *   Calibrated against bartowski file sizes for Llama 3/3.1 8B (~8.03B params)
+ *   and Llama 3 70B (~70.6B params), averaged across both model sizes.
+ *   All I-quant entries are verified: true since they converged tightly
+ *   across two very different model sizes (within ~5%).
+ *
+ * FP16: exactly 2 bytes/param by definition.
  */
 
 export interface QuantFormat {
@@ -25,69 +25,231 @@ export interface QuantFormat {
   label: string;
   /** Effective bytes per parameter, calibrated against real GGUF files. */
   bytesPerParam: number;
-  /** Whether bytesPerParam came from a real measured file size or an extrapolated estimate. */
+  /** Whether bytesPerParam came from real measured file sizes or extrapolation. */
   verified: boolean;
   description: string;
-  /** Rough quality tier for the quant-picker tool's recommendation logic. */
-  qualityTier: "low" | "medium" | "high" | "lossless-ish";
+  qualityTier: "extreme-low" | "low" | "medium" | "high" | "lossless-ish";
+  /** Which family this quant belongs to — used for grouping in the UI. */
+  family: "iq" | "kq" | "legacy";
 }
 
 export const QUANT_FORMATS: QuantFormat[] = [
+  // ── I-quants (importance matrix) ─────────────────────────────────────────
+  // Use codebooks + calibration data for better quality-per-byte than K-quants
+  // at low bit widths. Require an imatrix file; slower on CPU than K-quants.
+  // Not compatible with Vulkan (AMD) builds — GPU users should verify backend.
+  {
+    id: "iq1_s",
+    label: "IQ1_S",
+    bytesPerParam: 0.251,
+    verified: true,
+    description: "Extreme 1-bit. Severe quality loss, smallest possible file.",
+    qualityTier: "extreme-low",
+    family: "iq",
+  },
+  {
+    id: "iq1_m",
+    label: "IQ1_M",
+    bytesPerParam: 0.272,
+    verified: true,
+    description: "Extreme 1-bit, slightly better than IQ1_S.",
+    qualityTier: "extreme-low",
+    family: "iq",
+  },
+  {
+    id: "iq2_xxs",
+    label: "IQ2_XXS",
+    bytesPerParam: 0.306,
+    verified: true,
+    description: "2-bit, ultra-small. Noticeable quality loss on most models.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq2_xs",
+    label: "IQ2_XS",
+    bytesPerParam: 0.335,
+    verified: true,
+    description: "2-bit extra-small. Slight step up from IQ2_XXS.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq2_s",
+    label: "IQ2_S",
+    bytesPerParam: 0.353,
+    verified: true,
+    description: "2-bit small. Approaches Q2_K quality with smaller file.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq2_m",
+    label: "IQ2_M",
+    bytesPerParam: 0.380,
+    verified: true,
+    description: "2-bit medium. Best 2-bit option quality-wise.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq3_xxs",
+    label: "IQ3_XXS",
+    bytesPerParam: 0.428,
+    verified: true,
+    description: "3-bit, smallest. Often beats Q3_K_S at same or smaller size.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq3_xs",
+    label: "IQ3_XS",
+    bytesPerParam: 0.458,
+    verified: true,
+    description: "3-bit extra-small. Good quality-per-byte below Q4.",
+    qualityTier: "low",
+    family: "iq",
+  },
+  {
+    id: "iq3_s",
+    label: "IQ3_S",
+    bytesPerParam: 0.481,
+    verified: true,
+    description: "3-bit small. Comparable to Q3_K_M at smaller size.",
+    qualityTier: "medium",
+    family: "iq",
+  },
+  {
+    id: "iq3_m",
+    label: "IQ3_M",
+    bytesPerParam: 0.495,
+    verified: true,
+    description: "3-bit medium. Best 3-bit option; approaches Q4 quality.",
+    qualityTier: "medium",
+    family: "iq",
+  },
+  {
+    id: "iq4_xs",
+    label: "IQ4_XS",
+    bytesPerParam: 0.586,
+    verified: true,
+    description: "4-bit extra-small. Often matches Q4_K_M quality at smaller size.",
+    qualityTier: "medium",
+    family: "iq",
+  },
+  {
+    id: "iq4_nl",
+    label: "IQ4_NL",
+    bytesPerParam: 0.618,
+    verified: true,
+    description: "4-bit non-linear. Similar to Q4_K_M; better on ARM/AVX2.",
+    qualityTier: "medium",
+    family: "iq",
+  },
+
+  // ── K-quants ─────────────────────────────────────────────────────────────
+  // Mixed-precision per-block quantization. Widely supported across all
+  // backends (CUDA, ROCm, Vulkan, Metal, CPU). The default choice for most.
   {
     id: "q2_k",
     label: "Q2_K",
     bytesPerParam: 0.38,
     verified: false,
-    description: "Smallest, noticeable quality loss. Emergency-fit only.",
+    description: "2-bit. Emergency-fit only — significant quality loss.",
     qualityTier: "low",
+    family: "kq",
+  },
+  {
+    id: "q3_k_s",
+    label: "Q3_K_S",
+    bytesPerParam: 0.46,
+    verified: false,
+    description: "3-bit small. Slightly smaller than Q3_K_M, slightly lower quality.",
+    qualityTier: "low",
+    family: "kq",
   },
   {
     id: "q3_k_m",
     label: "Q3_K_M",
     bytesPerParam: 0.48,
     verified: false,
-    description: "Usable for casual use, clear quality drop vs Q4+.",
+    description: "3-bit medium. Usable for casual use; clear drop vs Q4+.",
     qualityTier: "low",
+    family: "kq",
+  },
+  {
+    id: "q3_k_l",
+    label: "Q3_K_L",
+    bytesPerParam: 0.51,
+    verified: false,
+    description: "3-bit large. Closer to Q4 quality, larger than Q3_K_M.",
+    qualityTier: "low",
+    family: "kq",
+  },
+  {
+    id: "q4_k_s",
+    label: "Q4_K_S",
+    bytesPerParam: 0.64,
+    verified: false,
+    description: "4-bit small. Slightly smaller than Q4_K_M with minor quality tradeoff.",
+    qualityTier: "medium",
+    family: "kq",
   },
   {
     id: "q4_k_m",
     label: "Q4_K_M",
     bytesPerParam: 0.67,
     verified: true,
-    description: "Sweet spot for most consumer GPUs — good quality-to-size ratio.",
+    description: "4-bit medium. Sweet spot for most consumer GPUs.",
     qualityTier: "medium",
+    family: "kq",
+  },
+  {
+    id: "q5_k_s",
+    label: "Q5_K_S",
+    bytesPerParam: 0.74,
+    verified: false,
+    description: "5-bit small. Slightly smaller than Q5_K_M.",
+    qualityTier: "high",
+    family: "kq",
   },
   {
     id: "q5_k_m",
     label: "Q5_K_M",
     bytesPerParam: 0.77,
     verified: true,
-    description: "Noticeably closer to full precision, larger file.",
+    description: "5-bit medium. Noticeably closer to full precision.",
     qualityTier: "high",
+    family: "kq",
   },
   {
     id: "q6_k",
     label: "Q6_K",
     bytesPerParam: 0.88,
     verified: true,
-    description: "Near full-precision quality, for when you have VRAM to spare.",
+    description: "6-bit. Near full-precision quality, for when VRAM allows.",
     qualityTier: "high",
+    family: "kq",
   },
   {
     id: "q8_0",
     label: "Q8_0",
     bytesPerParam: 1.14,
     verified: true,
-    description: "Effectively lossless vs FP16 for most use cases.",
+    description: "8-bit. Effectively lossless vs FP16 for most use cases.",
     qualityTier: "lossless-ish",
+    family: "kq",
   },
+
+  // ── Full precision ───────────────────────────────────────────────────────
   {
     id: "fp16",
-    label: "FP16 (no quantization)",
+    label: "FP16",
     bytesPerParam: 2.0,
     verified: true,
-    description: "Full precision. Baseline reference, rarely needed locally.",
+    description: "Full precision. Reference baseline, rarely used locally.",
     qualityTier: "lossless-ish",
+    family: "legacy",
   },
 ];
 

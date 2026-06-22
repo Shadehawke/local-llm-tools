@@ -2,6 +2,7 @@
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import { MODEL_ARCHITECTURES } from "../../data/models";
 import { QUANT_FORMATS } from "../../data/quants";
+import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
 
 const title = "VRAM Calculator for Local LLMs — Will It Fit Your GPU?";
 const description =
@@ -130,23 +131,60 @@ const faqSchema = {
       </div>
 
       <div>
-        <label for="context-length" class="block text-sm font-medium text-base-200 mb-2">
-          Context length: <span id="context-length-display" class="text-accent-300 font-mono-display">8192</span> tokens
+        <label for="kv-preset-select" class="block text-sm font-medium text-base-200 mb-2">
+          KV cache quantization
         </label>
-        <input
-          id="context-length"
-          type="range"
-          min="512"
-          max="131072"
-          step="512"
-          value="8192"
-          class="w-full"
-        />
+        <select
+          id="kv-preset-select"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          {KV_QUANT_PRESETS.map((preset) => (
+            <option value={preset.id}>{preset.label} — {preset.description}</option>
+          ))}
+        </select>
+        <p class="text-xs text-base-400 mt-1">
+          K and V tensors have different compression sensitivity — V degrades quality
+          faster than K at the same bit width. FP16/FP16 is the safe default.
+        </p>
+      </div>
+
+      <div>
+        <label for="context-length-select" class="block text-sm font-medium text-base-200 mb-2">
+          Context length
+        </label>
+        <div class="flex gap-2">
+          <select
+            id="context-length-select"
+            class="flex-1 bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+          >
+            <option value="2048">2K (2,048)</option>
+            <option value="4096">4K (4,096)</option>
+            <option value="8192" selected>8K (8,192)</option>
+            <option value="16384">16K (16,384)</option>
+            <option value="32768">32K (32,768)</option>
+            <option value="40960">40K (40,960)</option>
+            <option value="65536">64K (65,536)</option>
+            <option value="131072">128K (131,072)</option>
+            <option value="262144">256K (262,144)</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <input
+            id="context-length-custom"
+            type="number"
+            min="512"
+            step="512"
+            placeholder="tokens"
+            class="hidden w-28 bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+          />
+        </div>
+        <p class="text-xs text-base-400 mt-1">
+          For extended context via RoPE scaling, enter a custom value.
+        </p>
       </div>
 
       <div>
         <label for="batch-size" class="block text-sm font-medium text-base-200 mb-2">
-          Batch size (concurrent requests)
+          Concurrent sequences
         </label>
         <input
           id="batch-size"
@@ -155,6 +193,12 @@ const faqSchema = {
           value="1"
           class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
         />
+        <p class="text-xs text-base-400 mt-1">
+          Leave at 1 for personal use (Ollama, LM Studio, llama.cpp). This is
+          concurrent <em>sequences</em>, not llama.cpp's <code class="text-accent-300">-b</code> prompt-processing
+          batch size — those are different things. Only increase if running a
+          multi-user inference server where each user needs their own KV cache.
+        </p>
       </div>
 
       <div>
@@ -254,17 +298,18 @@ const faqSchema = {
   <script>
     import { MODEL_ARCHITECTURES, getModelById, type ModelArchitecture } from "../../data/models";
     import { QUANT_FORMATS, getQuantById } from "../../data/quants";
-    import { estimateVram, maxContextForVram } from "../../lib/vramCalculator";
+    import { estimateVram, maxContextForVram, KV_QUANT_PRESETS, getKvPresetById } from "../../lib/vramCalculator";
 
     const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
+    const kvPresetSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
     const customFields = document.getElementById("custom-model-fields") as HTMLDivElement;
     const customParams = document.getElementById("custom-params") as HTMLInputElement;
     const customLayers = document.getElementById("custom-layers") as HTMLInputElement;
     const customKvHeads = document.getElementById("custom-kv-heads") as HTMLInputElement;
     const customHeadDim = document.getElementById("custom-head-dim") as HTMLInputElement;
     const quantSelect = document.getElementById("quant-select") as HTMLSelectElement;
-    const contextLengthInput = document.getElementById("context-length") as HTMLInputElement;
-    const contextLengthDisplay = document.getElementById("context-length-display") as HTMLSpanElement;
+    const contextLengthSelect = document.getElementById("context-length-select") as HTMLSelectElement;
+    const contextLengthCustom = document.getElementById("context-length-custom") as HTMLInputElement;
     const batchSizeInput = document.getElementById("batch-size") as HTMLInputElement;
     const availableVramInput = document.getElementById("available-vram") as HTMLInputElement;
 
@@ -302,11 +347,11 @@ const faqSchema = {
     function recalculate() {
       const model = getCurrentModel();
       const quant = getQuantById(quantSelect.value);
-      const contextLength = Number(contextLengthInput.value);
+      const contextLength = contextLengthSelect.value === "custom"
+        ? Number(contextLengthCustom.value) || 8192
+        : Number(contextLengthSelect.value);
       const batchSize = Math.max(1, Number(batchSizeInput.value) || 1);
       const availableVram = Number(availableVramInput.value) || 0;
-
-      contextLengthDisplay.textContent = contextLength.toLocaleString();
 
       if (model.paramsBillion <= 0 || model.numLayers <= 0) {
         // Custom model fields not yet filled in — show placeholder state, don't crash.
@@ -320,7 +365,8 @@ const faqSchema = {
         return;
       }
 
-      const result = estimateVram({ model, quant, contextLength, batchSize });
+      const kvPreset = getKvPresetById(kvPresetSelect.value);
+      const result = estimateVram({ model, quant, contextLength, batchSize, kvPreset });
 
       resultWeights.textContent = formatGiB(result.weightsGiB);
       resultKvCache.textContent = formatGiB(result.kvCacheGiB);
@@ -328,7 +374,7 @@ const faqSchema = {
       resultTotal.textContent = formatGiB(result.totalGiB);
 
       const fits = result.totalGiB <= availableVram;
-      const maxContext = maxContextForVram(availableVram, model, quant, batchSize);
+      const maxContext = maxContextForVram(availableVram, model, quant, batchSize, kvPreset);
       resultMaxContext.textContent = formatTokens(maxContext);
 
       if (fits) {
@@ -346,8 +392,18 @@ const faqSchema = {
       recalculate();
     });
 
-    [quantSelect, contextLengthInput, batchSizeInput, availableVramInput,
-     customParams, customLayers, customKvHeads, customHeadDim].forEach((el) => {
+    kvPresetSelect.addEventListener("change", recalculate);
+
+    contextLengthSelect.addEventListener("change", () => {
+      const isCustom = contextLengthSelect.value === "custom";
+      contextLengthCustom.classList.toggle("hidden", !isCustom);
+      if (isCustom) contextLengthCustom.focus();
+      recalculate();
+    });
+
+    [quantSelect, batchSizeInput, availableVramInput,
+     customParams, customLayers, customKvHeads, customHeadDim,
+     contextLengthCustom].forEach((el) => {
       el.addEventListener("input", recalculate);
     });
 
