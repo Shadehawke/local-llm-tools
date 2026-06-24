@@ -36,14 +36,31 @@ export interface ModelArchitecture {
   isMoE?: boolean;
   numLayers: number;
   /**
-   * For hybrid attention models, the number of layers that use full (standard)
-   * attention with a KV cache that grows with context length. Linear attention,
-   * sliding window, and other non-standard layer types don't contribute to KV
-   * cache the same way and should NOT be counted here.
-   *
-   * If omitted, all numLayers are assumed to be full attention (standard dense).
+   * For hybrid attention models where all full-attention layers share the same
+   * KV head count and head dimension as the base numKvHeads/headDim fields.
+   * Examples: Qwen3.6-27B (linear + full attention, same head config per type).
+   * If omitted, all numLayers are assumed to be full attention.
    */
   numFullAttentionLayers?: number;
+  /**
+   * For sliding-window hybrid models where sliding and global layers have
+   * DIFFERENT KV head counts and head dimensions (e.g. Gemma 4).
+   * When present, the KV cache is computed as two separate terms:
+   *   - sliding layers: capped at slidingWindowSize tokens, uses base numKvHeads/headDim
+   *   - global layers: full context, uses globalKvHeads/globalHeadDim
+   * numFullAttentionLayers should NOT be set when using this config.
+   */
+  slidingWindowConfig?: {
+    slidingLayers: number;
+    slidingWindowSize: number;
+    /** KV heads for sliding layers — uses base numKvHeads if omitted. */
+    slidingKvHeads?: number;
+    /** Head dim for sliding layers — uses base headDim if omitted. */
+    slidingHeadDim?: number;
+    globalLayers: number;
+    globalKvHeads: number;
+    globalHeadDim: number;
+  };
   numKvHeads: number;
   headDim: number;
   /** Native context length the model was trained/released with. */
@@ -160,6 +177,29 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numKvHeads: 4,
     headDim: 256,
     nativeContextLength: 262144,
+  },
+  {
+    id: "gemma4-31b",
+    label: "Gemma 4 31B",
+    paramsBillion: 31,
+    // Verified from config.json (June 2026): 60 layers total, alternating
+    // 5 sliding_attention + 1 full_attention repeating 10 times.
+    // Sliding layers: num_key_value_heads=16, head_dim=256, window=1024.
+    // Global layers: num_global_key_value_heads=4, global_head_dim=512.
+    // These differ, so we use slidingWindowConfig rather than numFullAttentionLayers.
+    numLayers: 60,
+    numKvHeads: 16,   // sliding layer default, used for weight calc reference only
+    headDim: 256,     // sliding layer default, used for weight calc reference only
+    nativeContextLength: 131072,
+    slidingWindowConfig: {
+      slidingLayers: 50,
+      slidingWindowSize: 1024,
+      slidingKvHeads: 16,
+      slidingHeadDim: 256,
+      globalLayers: 10,
+      globalKvHeads: 4,
+      globalHeadDim: 512,
+    },
   },
   {
     id: "custom",

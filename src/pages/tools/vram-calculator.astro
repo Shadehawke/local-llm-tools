@@ -226,6 +226,16 @@ const faqSchema = {
           <dt class="text-base-400">Model weights</dt>
           <dd id="result-weights" class="text-base-50">—</dd>
         </div>
+        <div id="sliding-note" class="hidden border-b border-base-700 pb-2">
+          <p class="text-xs text-accent-300 px-1">
+            ℹ Sliding window hybrid model — KV cache has two components:
+            <strong id="sliding-layers-count">—</strong> sliding-window layers
+            (fixed, capped at <strong id="sliding-window-size">—</strong> tokens) +
+            <strong id="global-layers-count">—</strong> global attention layers
+            (grows with context length). The "max context" figure below reflects
+            how much additional context the global layers can accommodate.
+          </p>
+        </div>
         <div id="hybrid-note" class="hidden border-b border-base-700 pb-2">
           <p class="text-xs text-accent-300 px-1">
             ℹ Hybrid attention model — KV cache calculated using
@@ -437,6 +447,7 @@ const faqSchema = {
         resultTotal.textContent = "—";
         resultMaxContext.textContent = "—";
         turboQuantBody.innerHTML = `<tr><td colspan="3" class="py-3 text-base-400 text-xs">Enter model parameters above to see estimates.</td></tr>`;
+        (document.getElementById("sliding-note") as HTMLDivElement).classList.add("hidden");
         (document.getElementById("hybrid-note") as HTMLDivElement).classList.add("hidden");
         (document.getElementById("moe-note") as HTMLDivElement).classList.add("hidden");
         fitBanner.textContent = "Enter custom model parameters to calculate.";
@@ -448,6 +459,21 @@ const faqSchema = {
       const result = estimateVram({ model, quant, contextLength, batchSize, kvPreset });
 
       resultWeights.textContent = formatGiB(result.weightsGiB);
+
+      // Hybrid attention note
+      // Sliding window note
+      const slidingNote = document.getElementById("sliding-note") as HTMLDivElement;
+      const slidingLayersCount = document.getElementById("sliding-layers-count") as HTMLElement;
+      const slidingWindowSize = document.getElementById("sliding-window-size") as HTMLElement;
+      const globalLayersCount = document.getElementById("global-layers-count") as HTMLElement;
+      if (model.slidingWindowConfig) {
+        slidingNote.classList.remove("hidden");
+        slidingLayersCount.textContent = String(model.slidingWindowConfig.slidingLayers);
+        slidingWindowSize.textContent = model.slidingWindowConfig.slidingWindowSize.toLocaleString();
+        globalLayersCount.textContent = String(model.slidingWindowConfig.globalLayers);
+      } else {
+        slidingNote.classList.add("hidden");
+      }
 
       // Hybrid attention note
       const hybridNote = document.getElementById("hybrid-note") as HTMLDivElement;

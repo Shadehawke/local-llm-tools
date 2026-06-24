@@ -137,16 +137,17 @@ export function calculateKvCacheBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
+  if (model.slidingWindowConfig) {
+    return (
+      calculateKvKeysBytes(model, contextLength, batchSize, kvPreset) +
+      calculateKvValuesBytes(model, contextLength, batchSize, kvPreset)
+    );
+  }
   // Use numFullAttentionLayers when present — hybrid attention models only
-  // accumulate KV cache in their full-attention layers. Linear attention,
-  // sliding window, and similar layer types don't grow KV cache with context
-  // length the same way, so counting them would overcount significantly
-  // (e.g. 4x for Qwen3.6 which has 16 full-attention out of 64 total layers).
+  // accumulate KV cache in their full-attention layers.
   const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
   const baseTerms = effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize;
-  const kBytes = baseTerms * kvPreset.kBytesPerValue;
-  const vBytes = baseTerms * kvPreset.vBytesPerValue;
-  return kBytes + vBytes;
+  return baseTerms * (kvPreset.kBytesPerValue + kvPreset.vBytesPerValue);
 }
 
 export function calculateKvKeysBytes(
@@ -155,6 +156,15 @@ export function calculateKvKeysBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
+  if (model.slidingWindowConfig) {
+    const sw = model.slidingWindowConfig;
+    const slidingCtx = Math.min(contextLength, sw.slidingWindowSize);
+    const slidingKvHeads = sw.slidingKvHeads ?? model.numKvHeads;
+    const slidingHeadDim = sw.slidingHeadDim ?? model.headDim;
+    const slidingBytes = sw.slidingLayers * slidingKvHeads * slidingHeadDim * slidingCtx * batchSize * kvPreset.kBytesPerValue;
+    const globalBytes = sw.globalLayers * sw.globalKvHeads * sw.globalHeadDim * contextLength * batchSize * kvPreset.kBytesPerValue;
+    return slidingBytes + globalBytes;
+  }
   const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
   return effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.kBytesPerValue;
 }
@@ -165,6 +175,15 @@ export function calculateKvValuesBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
+  if (model.slidingWindowConfig) {
+    const sw = model.slidingWindowConfig;
+    const slidingCtx = Math.min(contextLength, sw.slidingWindowSize);
+    const slidingKvHeads = sw.slidingKvHeads ?? model.numKvHeads;
+    const slidingHeadDim = sw.slidingHeadDim ?? model.headDim;
+    const slidingBytes = sw.slidingLayers * slidingKvHeads * slidingHeadDim * slidingCtx * batchSize * kvPreset.vBytesPerValue;
+    const globalBytes = sw.globalLayers * sw.globalKvHeads * sw.globalHeadDim * contextLength * batchSize * kvPreset.vBytesPerValue;
+    return slidingBytes + globalBytes;
+  }
   const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
   return effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.vBytesPerValue;
 }
@@ -209,6 +228,24 @@ export function maxContextForVram(
   const remainingForKvCache = availableBytes - weightsBytes - FIXED_OVERHEAD_BYTES;
 
   if (remainingForKvCache <= 0) return 0;
+
+  // For sliding window models, the sliding layers' KV is fixed (capped at
+  // window size) and doesn't grow with context. Subtract that fixed cost
+  // first, then solve for how much context the global layers can handle.
+  if (model.slidingWindowConfig) {
+    const sw = model.slidingWindowConfig;
+    const slidingKvHeads = sw.slidingKvHeads ?? model.numKvHeads;
+    const slidingHeadDim = sw.slidingHeadDim ?? model.headDim;
+    const fixedSlidingBytes =
+      sw.slidingLayers * slidingKvHeads * slidingHeadDim * sw.slidingWindowSize * batchSize *
+      (kvPreset.kBytesPerValue + kvPreset.vBytesPerValue);
+    const remainingForGlobal = remainingForKvCache - fixedSlidingBytes;
+    if (remainingForGlobal <= 0) return 0;
+    const globalBytesPerToken =
+      sw.globalLayers * sw.globalKvHeads * sw.globalHeadDim * batchSize *
+      (kvPreset.kBytesPerValue + kvPreset.vBytesPerValue);
+    return Math.floor(remainingForGlobal / globalBytesPerToken);
+  }
 
   const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
   const bytesPerContextToken =
