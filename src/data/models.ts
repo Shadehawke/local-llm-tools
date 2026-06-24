@@ -30,12 +30,20 @@ export interface ModelArchitecture {
   /**
    * Active parameters per forward pass (MoE models only).
    * Does NOT affect VRAM — all experts must be resident in memory regardless.
-   * Only relevant for compute/speed estimates, not memory estimates.
    */
   activeParamsBillion?: number;
   /** Whether this is a Mixture-of-Experts model. Affects UI labeling only. */
   isMoE?: boolean;
   numLayers: number;
+  /**
+   * For hybrid attention models, the number of layers that use full (standard)
+   * attention with a KV cache that grows with context length. Linear attention,
+   * sliding window, and other non-standard layer types don't contribute to KV
+   * cache the same way and should NOT be counted here.
+   *
+   * If omitted, all numLayers are assumed to be full attention (standard dense).
+   */
+  numFullAttentionLayers?: number;
   numKvHeads: number;
   headDim: number;
   /** Native context length the model was trained/released with. */
@@ -139,6 +147,19 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     // as standard dense attention, which overcounts KV by ~4x. Hybrid attention
     // schema support is a separate deferred item.
     nativeContextLength: 131072,
+  },
+  {
+    id: "qwen3.6-27b",
+    label: "Qwen3.6-27B",
+    paramsBillion: 27,
+    numLayers: 64,
+    // Only every 4th layer is full_attention — the rest are linear_attention
+    // which do not accumulate a standard KV cache. Using all 64 layers would
+    // overcount KV cache by 4x. Verified from config.json (April 2026).
+    numFullAttentionLayers: 16,
+    numKvHeads: 4,
+    headDim: 256,
+    nativeContextLength: 262144,
   },
   {
     id: "custom",

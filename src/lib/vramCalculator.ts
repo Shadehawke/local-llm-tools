@@ -137,7 +137,13 @@ export function calculateKvCacheBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
-  const baseTerms = model.numLayers * model.numKvHeads * model.headDim * contextLength * batchSize;
+  // Use numFullAttentionLayers when present — hybrid attention models only
+  // accumulate KV cache in their full-attention layers. Linear attention,
+  // sliding window, and similar layer types don't grow KV cache with context
+  // length the same way, so counting them would overcount significantly
+  // (e.g. 4x for Qwen3.6 which has 16 full-attention out of 64 total layers).
+  const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
+  const baseTerms = effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize;
   const kBytes = baseTerms * kvPreset.kBytesPerValue;
   const vBytes = baseTerms * kvPreset.vBytesPerValue;
   return kBytes + vBytes;
@@ -149,7 +155,8 @@ export function calculateKvKeysBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
-  return model.numLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.kBytesPerValue;
+  const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
+  return effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.kBytesPerValue;
 }
 
 export function calculateKvValuesBytes(
@@ -158,7 +165,8 @@ export function calculateKvValuesBytes(
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
-  return model.numLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.vBytesPerValue;
+  const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
+  return effectiveLayers * model.numKvHeads * model.headDim * contextLength * batchSize * kvPreset.vBytesPerValue;
 }
 
 export function estimateVram(input: VramEstimateInput): VramEstimateResult {
@@ -202,8 +210,9 @@ export function maxContextForVram(
 
   if (remainingForKvCache <= 0) return 0;
 
+  const effectiveLayers = model.numFullAttentionLayers ?? model.numLayers;
   const bytesPerContextToken =
-    model.numLayers *
+    effectiveLayers *
     model.numKvHeads *
     model.headDim *
     batchSize *

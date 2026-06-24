@@ -226,6 +226,15 @@ const faqSchema = {
           <dt class="text-base-400">Model weights</dt>
           <dd id="result-weights" class="text-base-50">—</dd>
         </div>
+        <div id="hybrid-note" class="hidden border-b border-base-700 pb-2">
+          <p class="text-xs text-accent-300 px-1">
+            ℹ Hybrid attention model — KV cache calculated using
+            <strong id="hybrid-full-layers">—</strong> full-attention layers
+            (out of <strong id="hybrid-total-layers">—</strong> total).
+            Linear/sliding-window layers don't accumulate a standard KV cache
+            and are excluded from this estimate.
+          </p>
+        </div>
         <div id="moe-note" class="hidden border-b border-base-700 pb-2">
           <p class="text-xs text-signal-warn px-1">
             ⚠ MoE model — weight VRAM is based on <strong id="moe-total-params">—</strong> total parameters.
@@ -428,6 +437,7 @@ const faqSchema = {
         resultTotal.textContent = "—";
         resultMaxContext.textContent = "—";
         turboQuantBody.innerHTML = `<tr><td colspan="3" class="py-3 text-base-400 text-xs">Enter model parameters above to see estimates.</td></tr>`;
+        (document.getElementById("hybrid-note") as HTMLDivElement).classList.add("hidden");
         (document.getElementById("moe-note") as HTMLDivElement).classList.add("hidden");
         fitBanner.textContent = "Enter custom model parameters to calculate.";
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
@@ -438,6 +448,18 @@ const faqSchema = {
       const result = estimateVram({ model, quant, contextLength, batchSize, kvPreset });
 
       resultWeights.textContent = formatGiB(result.weightsGiB);
+
+      // Hybrid attention note
+      const hybridNote = document.getElementById("hybrid-note") as HTMLDivElement;
+      const hybridFullLayers = document.getElementById("hybrid-full-layers") as HTMLElement;
+      const hybridTotalLayers = document.getElementById("hybrid-total-layers") as HTMLElement;
+      if (model.numFullAttentionLayers !== undefined) {
+        hybridNote.classList.remove("hidden");
+        hybridFullLayers.textContent = String(model.numFullAttentionLayers);
+        hybridTotalLayers.textContent = String(model.numLayers);
+      } else {
+        hybridNote.classList.add("hidden");
+      }
 
       // MoE note — show when the selected model has distinct active vs total params
       const moeNote = document.getElementById("moe-note") as HTMLDivElement;
