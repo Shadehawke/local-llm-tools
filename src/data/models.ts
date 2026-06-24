@@ -156,13 +156,13 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     activeParamsBillion: 17,
     isMoE: true,
     numLayers: 48,
+    // iRoPE architecture: NoPE (full causal attention) every 4th layer,
+    // chunked attention for the other 3 of 4. 48 layers / 4 = 12 full-attention
+    // layers. Verified from transformers Llama4 config class defaults and
+    // Hugging Face blog post on Llama 4 release (April 2025).
+    numFullAttentionLayers: 12,
     numKvHeads: 8,
     headDim: 128,
-    // 10M token context is the theoretical max; 128K is the practical planning
-    // ceiling for local VRAM estimation. The iRoPE hybrid attention pattern
-    // (NoPE full-attention every 4th layer) affects KV cache — currently modeled
-    // as standard dense attention, which overcounts KV by ~4x. Hybrid attention
-    // schema support is a separate deferred item.
     nativeContextLength: 131072,
   },
   {
