@@ -25,7 +25,16 @@
 export interface ModelArchitecture {
   id: string;
   label: string;
+  /** Total parameter count — determines VRAM needed to load the model. */
   paramsBillion: number;
+  /**
+   * Active parameters per forward pass (MoE models only).
+   * Does NOT affect VRAM — all experts must be resident in memory regardless.
+   * Only relevant for compute/speed estimates, not memory estimates.
+   */
+  activeParamsBillion?: number;
+  /** Whether this is a Mixture-of-Experts model. Affects UI labeling only. */
+  isMoE?: boolean;
   numLayers: number;
   numKvHeads: number;
   headDim: number;
@@ -113,6 +122,22 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 64,
     numKvHeads: 8,
     headDim: 128,
+    nativeContextLength: 131072,
+  },
+  {
+    id: "llama4-scout",
+    label: "Llama 4 Scout (17B×16E)",
+    paramsBillion: 109,
+    activeParamsBillion: 17,
+    isMoE: true,
+    numLayers: 48,
+    numKvHeads: 8,
+    headDim: 128,
+    // 10M token context is the theoretical max; 128K is the practical planning
+    // ceiling for local VRAM estimation. The iRoPE hybrid attention pattern
+    // (NoPE full-attention every 4th layer) affects KV cache — currently modeled
+    // as standard dense attention, which overcounts KV by ~4x. Hybrid attention
+    // schema support is a separate deferred item.
     nativeContextLength: 131072,
   },
   {

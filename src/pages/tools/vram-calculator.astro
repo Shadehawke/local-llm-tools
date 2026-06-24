@@ -226,6 +226,14 @@ const faqSchema = {
           <dt class="text-base-400">Model weights</dt>
           <dd id="result-weights" class="text-base-50">—</dd>
         </div>
+        <div id="moe-note" class="hidden border-b border-base-700 pb-2">
+          <p class="text-xs text-signal-warn px-1">
+            ⚠ MoE model — weight VRAM is based on <strong id="moe-total-params">—</strong> total parameters.
+            All experts must be resident in memory even though only <strong id="moe-active-params">—</strong>
+            are active per token. KV cache estimate currently assumes standard dense attention
+            and may overcount for this model's hybrid attention layers.
+          </p>
+        </div>
         <div class="flex justify-between border-b border-base-700 pb-2">
           <dt class="text-base-400">KV cache (total)</dt>
           <dd id="result-kv-cache" class="text-base-50">—</dd>
@@ -420,6 +428,7 @@ const faqSchema = {
         resultTotal.textContent = "—";
         resultMaxContext.textContent = "—";
         turboQuantBody.innerHTML = `<tr><td colspan="3" class="py-3 text-base-400 text-xs">Enter model parameters above to see estimates.</td></tr>`;
+        (document.getElementById("moe-note") as HTMLDivElement).classList.add("hidden");
         fitBanner.textContent = "Enter custom model parameters to calculate.";
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
         return;
@@ -429,6 +438,18 @@ const faqSchema = {
       const result = estimateVram({ model, quant, contextLength, batchSize, kvPreset });
 
       resultWeights.textContent = formatGiB(result.weightsGiB);
+
+      // MoE note — show when the selected model has distinct active vs total params
+      const moeNote = document.getElementById("moe-note") as HTMLDivElement;
+      const moeTotalParams = document.getElementById("moe-total-params") as HTMLElement;
+      const moeActiveParams = document.getElementById("moe-active-params") as HTMLElement;
+      if (model.isMoE && model.activeParamsBillion) {
+        moeNote.classList.remove("hidden");
+        moeTotalParams.textContent = `${model.paramsBillion}B`;
+        moeActiveParams.textContent = `${model.activeParamsBillion}B`;
+      } else {
+        moeNote.classList.add("hidden");
+      }
       resultKvCache.textContent = formatGiB(result.kvCacheGiB);
       resultKvKeys.textContent = formatGiB(result.kvKeysGiB);
       resultKvValues.textContent = formatGiB(result.kvValuesGiB);
