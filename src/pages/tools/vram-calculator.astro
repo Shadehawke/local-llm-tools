@@ -3,6 +3,7 @@ import BaseLayout from "../../layouts/BaseLayout.astro";
 import { MODEL_ARCHITECTURES } from "../../data/models";
 import { QUANT_FORMATS } from "../../data/quants";
 import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
+import type { TurboQuantEstimate } from "../../lib/vramCalculator";
 
 const title = "VRAM Calculator for Local LLMs — Will It Fit Your GPU?";
 const description =
@@ -226,8 +227,16 @@ const faqSchema = {
           <dd id="result-weights" class="text-base-50">—</dd>
         </div>
         <div class="flex justify-between border-b border-base-700 pb-2">
-          <dt class="text-base-400">KV cache</dt>
+          <dt class="text-base-400">KV cache (total)</dt>
           <dd id="result-kv-cache" class="text-base-50">—</dd>
+        </div>
+        <div class="flex justify-between border-b border-base-700 pb-2 pl-4">
+          <dt class="text-base-400 text-xs">↳ Keys</dt>
+          <dd id="result-kv-keys" class="text-base-50 text-xs">—</dd>
+        </div>
+        <div class="flex justify-between border-b border-base-700 pb-2 pl-4">
+          <dt class="text-base-400 text-xs">↳ Values</dt>
+          <dd id="result-kv-values" class="text-base-50 text-xs">—</dd>
         </div>
         <div class="flex justify-between border-b border-base-700 pb-2">
           <dt class="text-base-400">Overhead (CUDA/framework)</dt>
@@ -243,6 +252,51 @@ const faqSchema = {
         <p class="text-sm text-base-400 mb-1">Max context length that fits your VRAM:</p>
         <p id="result-max-context" class="text-2xl font-mono-display text-base-50">—</p>
       </div>
+    </section>
+
+    <section class="bg-base-900 border border-base-700 rounded-xl p-6 md:col-span-2">
+      <div class="flex items-start justify-between mb-4">
+        <div>
+          <h2 class="text-base font-semibold text-base-50">TurboQuant KV cache comparison</h2>
+          <p class="text-xs text-base-400 mt-1">
+            Theoretical estimates only — llama.cpp integration in progress, not yet in a stable release.
+            Values assume both K and V compressed at the same bit target with no codebook overhead.
+          </p>
+        </div>
+        <span class="text-xs border border-accent-500/40 text-accent-400 rounded px-2 py-0.5 ml-4 shrink-0">
+          experimental
+        </span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm font-mono-display">
+          <thead>
+            <tr class="text-left text-xs text-base-400 border-b border-base-700">
+              <th class="pb-2 font-normal">Method</th>
+              <th class="pb-2 font-normal text-right">KV cache size</th>
+              <th class="pb-2 font-normal text-right">vs F16/F16</th>
+            </tr>
+          </thead>
+          <tbody id="turbo-quant-body">
+            <tr>
+              <td colspan="3" class="py-3 text-base-400 text-xs">
+                Enter model parameters above to see estimates.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-base-400 mt-4">
+        <a
+          href="https://arxiv.org/abs/2501.11032"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-accent-300 hover:text-accent-200 underline"
+        >TurboQuant paper (ICLR 2026)</a>
+        — K and V have different sensitivity to compression; real deployments may use
+        asymmetric bit targets rather than the symmetric estimates shown here.
+      </p>
     </section>
   </div>
 
@@ -298,7 +352,7 @@ const faqSchema = {
   <script>
     import { MODEL_ARCHITECTURES, getModelById, type ModelArchitecture } from "../../data/models";
     import { QUANT_FORMATS, getQuantById } from "../../data/quants";
-    import { estimateVram, maxContextForVram, KV_QUANT_PRESETS, getKvPresetById } from "../../lib/vramCalculator";
+    import { estimateVram, maxContextForVram, KV_QUANT_PRESETS, getKvPresetById, estimateTurboQuant } from "../../lib/vramCalculator";
 
     const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
     const kvPresetSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
@@ -315,10 +369,13 @@ const faqSchema = {
 
     const resultWeights = document.getElementById("result-weights") as HTMLElement;
     const resultKvCache = document.getElementById("result-kv-cache") as HTMLElement;
+    const resultKvKeys = document.getElementById("result-kv-keys") as HTMLElement;
+    const resultKvValues = document.getElementById("result-kv-values") as HTMLElement;
     const resultOverhead = document.getElementById("result-overhead") as HTMLElement;
     const resultTotal = document.getElementById("result-total") as HTMLElement;
     const resultMaxContext = document.getElementById("result-max-context") as HTMLElement;
     const fitBanner = document.getElementById("result-fit-banner") as HTMLDivElement;
+    const turboQuantBody = document.getElementById("turbo-quant-body") as HTMLTableSectionElement;
 
     function getCurrentModel(): ModelArchitecture {
       if (modelSelect.value === "custom") {
@@ -357,9 +414,12 @@ const faqSchema = {
         // Custom model fields not yet filled in — show placeholder state, don't crash.
         resultWeights.textContent = "—";
         resultKvCache.textContent = "—";
+        resultKvKeys.textContent = "—";
+        resultKvValues.textContent = "—";
         resultOverhead.textContent = "—";
         resultTotal.textContent = "—";
         resultMaxContext.textContent = "—";
+        turboQuantBody.innerHTML = `<tr><td colspan="3" class="py-3 text-base-400 text-xs">Enter model parameters above to see estimates.</td></tr>`;
         fitBanner.textContent = "Enter custom model parameters to calculate.";
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
         return;
@@ -370,8 +430,22 @@ const faqSchema = {
 
       resultWeights.textContent = formatGiB(result.weightsGiB);
       resultKvCache.textContent = formatGiB(result.kvCacheGiB);
+      resultKvKeys.textContent = formatGiB(result.kvKeysGiB);
+      resultKvValues.textContent = formatGiB(result.kvValuesGiB);
       resultOverhead.textContent = formatGiB(result.overheadGiB);
       resultTotal.textContent = formatGiB(result.totalGiB);
+
+      // TurboQuant comparison table — always uses F16/F16 baseline for the
+      // savings column so the comparison is apples-to-apples regardless of
+      // what KV preset the user has selected above.
+      const turboEstimates = estimateTurboQuant(model, contextLength, batchSize);
+      turboQuantBody.innerHTML = turboEstimates.map((est) => `
+        <tr class="border-b border-base-800">
+          <td class="py-2 text-base-200">TurboQuant ${est.label}</td>
+          <td class="py-2 text-right text-base-50">${est.kvCacheGiB.toFixed(3)} GB</td>
+          <td class="py-2 text-right text-signal-good">−${est.savingsVsF16Pct}%</td>
+        </tr>
+      `).join("");
 
       const fits = result.totalGiB <= availableVram;
       const maxContext = maxContextForVram(availableVram, model, quant, batchSize, kvPreset);

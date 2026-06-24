@@ -41,7 +41,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 36,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 40960,
+    nativeContextLength: 32768,
   },
   {
     id: "qwen3-14b",
@@ -50,7 +50,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 40,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 40960,
+    nativeContextLength: 32768,
   },
   {
     id: "qwen3-32b",
@@ -59,7 +59,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 64,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 40960,
+    nativeContextLength: 32768,
   },
   {
     id: "llama3.1-8b",

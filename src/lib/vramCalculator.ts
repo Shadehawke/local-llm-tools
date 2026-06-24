@@ -211,3 +211,50 @@ export function maxContextForVram(
 
   return Math.floor(remainingForKvCache / bytesPerContextToken);
 }
+
+/**
+ * TurboQuant KV cache size estimates.
+ *
+ * TurboQuant (ICLR 2026, Google) compresses KV cache into 2.5-3.5 effective
+ * bits per value using vector quantization with codebooks, rather than scalar
+ * quantization like Q4/Q8. This gives better quality-per-bit than standard
+ * KV quantization at very low bit widths.
+ *
+ * These are theoretical estimates based on the published bit targets — actual
+ * memory savings depend on implementation overhead (codebook storage, indices).
+ * llama.cpp integration is in progress but not yet in a stable release as of
+ * mid-2026. Treat these as "best case" targets, not guaranteed savings.
+ *
+ * Source: "TurboQuant: A Training-Free KV Cache Compression Method" (ICLR 2026)
+ */
+export interface TurboQuantEstimate {
+  label: string;
+  bitsPerValue: number;
+  kvCacheBytes: number;
+  kvCacheGiB: number;
+  savingsVsF16Pct: number;
+}
+
+export function estimateTurboQuant(
+  model: ModelArchitecture,
+  contextLength: number,
+  batchSize: number,
+): TurboQuantEstimate[] {
+  const BYTES_PER_GIB = 1024 ** 3;
+  const baseTerms = model.numLayers * model.numKvHeads * model.headDim * contextLength * batchSize;
+  // F16/F16 baseline for savings comparison (2 bytes/value × 2 for K+V)
+  const f16Bytes = baseTerms * 2 * 2;
+
+  return [2.5, 3.0, 3.5].map((bits) => {
+    const bytesPerValue = bits / 8;
+    // K + V both at TurboQuant rate
+    const kvCacheBytes = baseTerms * bytesPerValue * 2;
+    return {
+      label: `${bits}-bit`,
+      bitsPerValue: bits,
+      kvCacheBytes,
+      kvCacheGiB: kvCacheBytes / BYTES_PER_GIB,
+      savingsVsF16Pct: Math.round((1 - kvCacheBytes / f16Bytes) * 100),
+    };
+  });
+}
