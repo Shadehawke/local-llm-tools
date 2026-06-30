@@ -1,0 +1,36 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const title = "Guides — llmfit";
+const description = "In-depth explainers on local LLM hardware, quantization, and memory planning.";
+
+interface Guide {
+  slug: string;
+  title: string;
+  shortDescription: string;
+}
+
+const GUIDES: Guide[] = [
+  {
+    slug: "vram-calculator-comparison",
+    title: "Why Different VRAM Calculators Give Different Numbers",
+    shortDescription: "A methodology comparison — why the same model and quant can show different VRAM estimates across tools.",
+  },
+];
+---
+
+<BaseLayout title={title} description={description} path="/guides/">
+  <h1 class="text-3xl font-bold text-base-50 mb-8">Guides</h1>
+
+  <div class="grid sm:grid-cols-2 gap-4">
+    {GUIDES.map((guide) => (
+      <a
+        href={`/guides/${guide.slug}/`}
+        class="block border border-base-700 bg-base-900 hover:border-accent-500 rounded-xl p-5 transition-colors"
+      >
+        <h2 class="font-semibold text-base-50 mb-2">{guide.title}</h2>
+        <p class="text-sm text-base-400">{guide.shortDescription}</p>
+      </a>
+    ))}
+  </div>
+</BaseLayout>

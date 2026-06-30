@@ -1,0 +1,188 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const title = "Why Different VRAM Calculators Give Different Numbers — A Methodology Comparison";
+const description =
+  "Several local LLM VRAM calculators exist, and they often disagree on the same model and quantization. Here's why, with real numbers compared side by side.";
+
+const faqs = [
+  {
+    question: "Why don't VRAM calculators agree on the same model?",
+    answer:
+      "They use different methodologies for estimating weight size and KV cache. Some use a flat bits-per-weight figure that doesn't account for the mixed-precision blocks and metadata overhead in real GGUF files. Some apply a flat percentage reduction per quantization level rather than a calibrated rate. Some calculate KV cache assuming standard attention even for models with hybrid or sliding-window attention architectures, which can overcount significantly.",
+  },
+  {
+    question: "Which VRAM calculator is most accurate?",
+    answer:
+      "Accuracy depends on whether the underlying bytes-per-parameter values are calibrated against real published file sizes versus theoretical bit counts, and whether the KV cache formula accounts for a model's actual attention architecture. A calculator that shows its methodology and sources lets you judge that for yourself rather than trusting a black-box number.",
+  },
+  {
+    question: "Why does KV cache matter separately from model weights?",
+    answer:
+      "Model weight size is fixed once you pick a quantization level. KV cache grows with context length, so a model that fits comfortably at short context can run out of memory at long context purely from KV cache growth. Calculators that only show a single combined number make it hard to tell which term is driving memory use.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/guides/vram-calculator-comparison/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/guides" class="hover:text-base-200">Guides</a> /
+    <span class="text-base-200">VRAM calculator comparison</span>
+  </nav>
+
+  <article class="max-w-3xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">
+      Why Different VRAM Calculators Give Different Numbers
+    </h1>
+    <p class="text-base-400 mb-10">
+      If you've checked more than one VRAM calculator for the same model, you've probably
+      noticed they don't agree. Here's why, with real numbers compared side by side for
+      Llama 3.1 8B at Q4_K_M quantization with 8K context.
+    </p>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">The same model, several different numbers</h2>
+      <p class="text-base-400">
+        Several free VRAM calculators exist for local LLM users, each with a different
+        approach to estimating memory. None of them are dishonest — they're making different
+        methodology choices that produce different results for the exact same input.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Approach</th>
+              <th class="p-3 font-medium text-base-200">Weights estimate (8B model, Q4_K_M)</th>
+              <th class="p-3 font-medium text-base-200">Method</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono-display text-base-300">
+            <tr class="border-t border-base-700">
+              <td class="p-3">Flat bits-per-weight (4.9 bpw)</td>
+              <td class="p-3">~4.58 GB</td>
+              <td class="p-3 text-xs">Theoretical bit count, no file-size calibration</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">Flat percentage reduction (50% of FP16)</td>
+              <td class="p-3">~7.0 GB</td>
+              <td class="p-3 text-xs">Halves a rounded FP16 baseline, no quant-specific calibration</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">Calibrated against real GGUF file sizes</td>
+              <td class="p-3">~5.01 GB</td>
+              <td class="p-3 text-xs">Bytes-per-param derived from actual published file sizes across multiple model sizes</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-base-400">
+        These figures come from each approach's published methodology, not from running every
+        calculator live for an identical screenshot comparison — the goal here is to explain
+        why the gap exists, not to declare a single number "correct" to three decimal places.
+        Real GGUF files vary slightly by quantizer and model architecture even within the same
+        named quant level.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Why the gap happens</h2>
+
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-200 mb-1">Theoretical bits vs. real file sizes</h3>
+        <p class="text-sm text-base-400">
+          "Q4_K_M" doesn't mean a flat 4 bits per weight. K-quants use mixed precision —
+          different tensors get different bit allocations — plus per-block scale factors.
+          A GGUF file also carries the embedding table, output head, and metadata, none of
+          which shrink at the same rate as the transformer layers. A theoretical "4.9 bits
+          per weight" figure undercounts real file size because it doesn't include that
+          overhead. Calibrating against actual published file sizes (dividing real file size
+          by parameter count, across several different model sizes to confirm the pattern
+          holds) gives a more accurate effective rate.
+        </p>
+      </div>
+
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-200 mb-1">Flat percentage reductions</h3>
+        <p class="text-sm text-base-400">
+          Some calculators apply a single reduction percentage per quantization level
+          ("INT4 ≈ 50% smaller") to a rounded baseline number. This is fast to implement
+          but doesn't reflect that different K-quant variants (Q4_K_S vs Q4_K_M vs Q4_K_L)
+          compress differently, and it compounds whatever rounding error already exists in
+          the baseline FP16 estimate.
+        </p>
+      </div>
+
+      <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+        <h3 class="font-semibold text-base-200 mb-1">KV cache and attention architecture</h3>
+        <p class="text-sm text-base-400">
+          This is the gap that matters most as context length grows, and it's not visible
+          in a weights-only comparison table. Standard dense attention models accumulate
+          KV cache across every layer. Models with hybrid attention (some layers linear,
+          some full) or sliding-window attention (some layers capped at a fixed window,
+          some global) only accumulate full KV cache in a subset of their layers. A
+          calculator that assumes every model uses standard dense attention can overcount
+          KV cache substantially for these architectures — sometimes by 4x or more,
+          depending on the specific ratio of full-attention to non-standard layers.
+        </p>
+      </div>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">What this means for you</h2>
+      <p class="text-base-400">
+        No single number is "the truth" down to the megabyte — real-world VRAM usage also
+        depends on your inference framework, driver version, and what else is using GPU
+        memory. But the methodology behind a number matters more than the number itself.
+        A calculator that shows its formula, explains which layers contribute to KV cache
+        for your specific model, and cites where its quantization values came from gives
+        you something you can actually evaluate — rather than a number you either trust
+        or don't.
+      </p>
+      <p class="text-base-400">
+        When checking any VRAM estimate, it's worth asking: is the weights figure calibrated
+        against real file sizes or a theoretical bit count? Does the KV cache estimate
+        account for your model's actual attention architecture, or does it assume standard
+        dense attention by default? Those two questions explain most of the disagreement
+        you'll see between tools.
+      </p>
+      <p class="text-base-400">
+        <a href="/tools/vram-calculator/" class="text-accent-300 hover:text-accent-200 underline">
+          Try the VRAM calculator
+        </a>
+        — every model entry includes a note on which methodology applies, and the quantization
+        values are calibrated against real published GGUF file sizes rather than theoretical
+        bit counts.
+      </p>
+    </section>
+
+    <section class="space-y-5">
+      <h2 class="text-xl font-semibold text-base-50">FAQ</h2>
+      {faqs.map((faq) => (
+        <div>
+          <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+          <p class="text-sm text-base-400">{faq.answer}</p>
+        </div>
+      ))}
+    </section>
+  </article>
+</BaseLayout>
