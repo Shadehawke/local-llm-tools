@@ -9,6 +9,12 @@ import sitemap from '@astrojs/sitemap';
 export default defineConfig({
   site: 'https://llmfit.dev',
   output: 'static',
+  // Always include trailing slashes — matches Astro's default static build
+  // output (each page becomes a directory with index.html) and ensures
+  // canonical URLs, sitemap entries, and server-side redirects all agree.
+  // A mismatch here was causing Google's crawler to report "Redirect error"
+  // on /tools/vram-calculator.
+  trailingSlash: 'always',
   integrations: [sitemap()],
   vite: {
     plugins: [tailwindcss()],
