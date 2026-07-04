@@ -4,10 +4,11 @@ import { MODEL_ARCHITECTURES } from "../../data/models";
 import { QUANT_FORMATS } from "../../data/quants";
 import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
 import type { TurboQuantEstimate } from "../../lib/vramCalculator";
+import { GPU_ENTRIES } from "../../data/gpus";
 
-const title = "VRAM Calculator for Local LLMs — Will It Fit Your GPU?";
+const title = "Local LLM VRAM & Speed Calculator — Will It Fit, and How Fast?";
 const description =
-  "Calculate exact VRAM needed to run Qwen3, Llama 3.1, Mistral, and other models locally at any quantization and context length. Includes KV cache, not just model weights.";
+  "Calculate VRAM needed and estimated inference speed (tokens/sec) for Qwen3, Llama 3.1, Mistral, Gemma 4, Llama 4, and other models. Includes KV cache, hybrid attention, MoE, and Apple Silicon.";
 
 const faqs = [
   {
@@ -214,6 +215,44 @@ const faqSchema = {
           class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
         />
       </div>
+
+      <div>
+        <label for="gpu-select" class="block text-sm font-medium text-base-200 mb-2">
+          Your GPU <span class="text-base-400 font-normal text-xs">(for speed estimate)</span>
+        </label>
+        <select
+          id="gpu-select"
+          class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50 focus:outline-none focus:ring-2 focus:ring-accent-500"
+        >
+          {(() => {
+            const groups = [...new Set(GPU_ENTRIES.map((g) => g.group))];
+            return groups.map((group) => (
+              <optgroup label={group}>
+                {GPU_ENTRIES.filter((g) => g.group === group).map((gpu) => (
+                  <option value={gpu.id} selected={gpu.id === "rtx3060-12gb"}>
+                    {gpu.label}
+                  </option>
+                ))}
+              </optgroup>
+            ));
+          })()}
+        </select>
+        <div id="custom-bandwidth-field" class="hidden mt-2">
+          <label for="custom-bandwidth" class="block text-xs text-base-400 mb-1">
+            Memory bandwidth (GB/s)
+          </label>
+          <input
+            id="custom-bandwidth"
+            type="number"
+            step="1"
+            placeholder="e.g. 504"
+            class="w-full bg-base-800 border border-base-600 rounded-lg px-3 py-2 text-base-50"
+          />
+          <p class="text-xs text-base-400 mt-1">
+            Find your card's memory bandwidth on TechPowerUp GPU Database.
+          </p>
+        </div>
+      </div>
     </section>
 
     <section class="bg-base-900 border border-base-700 rounded-xl p-6">
@@ -278,6 +317,13 @@ const faqSchema = {
       <div class="mt-6 pt-5 border-t border-base-700">
         <p class="text-sm text-base-400 mb-1">Max context length that fits your VRAM:</p>
         <p id="result-max-context" class="text-2xl font-mono-display text-base-50">—</p>
+      </div>
+
+      <div class="mt-6 pt-5 border-t border-base-700">
+        <p class="text-sm text-base-400 mb-2">Estimated decode speed:</p>
+        <p id="result-speed" class="text-2xl font-mono-display text-base-50">—</p>
+        <p id="result-speed-tier" class="text-xs mt-1">—</p>
+        <p id="result-speed-explanation" class="text-xs text-base-400 mt-2 leading-relaxed">—</p>
       </div>
     </section>
 
@@ -400,9 +446,17 @@ const faqSchema = {
     import { MODEL_ARCHITECTURES, getModelById, type ModelArchitecture } from "../../data/models";
     import { QUANT_FORMATS, getQuantById } from "../../data/quants";
     import { estimateVram, maxContextForVram, KV_QUANT_PRESETS, getKvPresetById, estimateTurboQuant } from "../../lib/vramCalculator";
+    import { GPU_ENTRIES, getGpuById } from "../../data/gpus";
+    import { estimateInferenceSpeed } from "../../lib/inferenceSpeed";
 
     const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
     const kvPresetSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
+    const gpuSelect = document.getElementById("gpu-select") as HTMLSelectElement;
+    const customBandwidthField = document.getElementById("custom-bandwidth-field") as HTMLDivElement;
+    const customBandwidthInput = document.getElementById("custom-bandwidth") as HTMLInputElement;
+    const resultSpeed = document.getElementById("result-speed") as HTMLElement;
+    const resultSpeedTier = document.getElementById("result-speed-tier") as HTMLElement;
+    const resultSpeedExplanation = document.getElementById("result-speed-explanation") as HTMLElement;
     const customFields = document.getElementById("custom-model-fields") as HTMLDivElement;
     const customParams = document.getElementById("custom-params") as HTMLInputElement;
     const customLayers = document.getElementById("custom-layers") as HTMLInputElement;
@@ -470,6 +524,9 @@ const faqSchema = {
         (document.getElementById("sliding-note") as HTMLDivElement).classList.add("hidden");
         (document.getElementById("hybrid-note") as HTMLDivElement).classList.add("hidden");
         (document.getElementById("moe-note") as HTMLDivElement).classList.add("hidden");
+        resultSpeed.textContent = "—";
+        resultSpeedTier.textContent = "—";
+        resultSpeedExplanation.textContent = "—";
         fitBanner.textContent = "Enter custom model parameters to calculate.";
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
         return;
@@ -536,6 +593,32 @@ const faqSchema = {
         </tr>
       `).join("");
 
+      // Inference speed estimate
+      const gpu = getGpuById(gpuSelect.value);
+      const customBandwidth = gpuSelect.value === "custom"
+        ? Number(customBandwidthInput.value) || undefined
+        : undefined;
+      const speedResult = estimateInferenceSpeed({ gpu, model, quant, customBandwidthGBs: customBandwidth });
+      const speedDisplay = speedResult.tokensPerSecond >= 100
+        ? `~${Math.round(speedResult.tokensPerSecond)} tok/s`
+        : `~${speedResult.tokensPerSecond.toFixed(1)} tok/s`;
+      resultSpeed.textContent = speedDisplay;
+      const tierLabels = {
+        fast: "✓ Fast — comfortable for interactive use",
+        ok: "◎ Acceptable — interactive but not instant",
+        slow: "⚠ Slow — usable, noticeable pauses",
+        very_slow: "✗ Very slow — frustrating for chat",
+      } as const;
+      const tierColors = {
+        fast: "text-signal-good",
+        ok: "text-accent-300",
+        slow: "text-signal-warn",
+        very_slow: "text-signal-bad",
+      } as const;
+      const tier = speedResult.tier as keyof typeof tierLabels;
+      resultSpeedTier.textContent = tierLabels[tier];
+      resultSpeedTier.className = `text-xs mt-1 ${tierColors[tier]}`;
+
       const fits = result.totalGiB <= availableVram;
       const maxContext = maxContextForVram(availableVram, model, quant, batchSize, kvPreset);
       resultMaxContext.textContent = formatTokens(maxContext);
@@ -556,6 +639,21 @@ const faqSchema = {
     });
 
     kvPresetSelect.addEventListener("change", recalculate);
+
+    gpuSelect.addEventListener("change", () => {
+      const isCustom = gpuSelect.value === "custom";
+      customBandwidthField.classList.toggle("hidden", !isCustom);
+      // Sync the VRAM input with the selected GPU's known VRAM when a real
+      // GPU is picked — saves the user a manual update step. Custom entry
+      // intentionally doesn't overwrite since the user needs to set it.
+      if (!isCustom) {
+        const gpu = getGpuById(gpuSelect.value);
+        (document.getElementById("available-vram") as HTMLInputElement).value = String(gpu.vramGB);
+      }
+      recalculate();
+    });
+
+    customBandwidthInput.addEventListener("input", recalculate);
 
     contextLengthSelect.addEventListener("change", () => {
       const isCustom = contextLengthSelect.value === "custom";
