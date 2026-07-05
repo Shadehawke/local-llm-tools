@@ -493,7 +493,7 @@ const faqSchema = {
       return getModelById(modelSelect.value);
     }
 
-    function formatGiB(value: number): string {
+    function formatGB(value: number): string {
       return `${value.toFixed(2)} GB`;
     }
 
@@ -535,7 +535,7 @@ const faqSchema = {
       const kvPreset = getKvPresetById(kvPresetSelect.value);
       const result = estimateVram({ model, quant, contextLength, batchSize, kvPreset });
 
-      resultWeights.textContent = formatGiB(result.weightsGiB);
+      resultWeights.textContent = formatGB(result.weightsGB);
 
       // Hybrid attention note
       // Sliding window note
@@ -575,11 +575,11 @@ const faqSchema = {
       } else {
         moeNote.classList.add("hidden");
       }
-      resultKvCache.textContent = formatGiB(result.kvCacheGiB);
-      resultKvKeys.textContent = formatGiB(result.kvKeysGiB);
-      resultKvValues.textContent = formatGiB(result.kvValuesGiB);
-      resultOverhead.textContent = formatGiB(result.overheadGiB);
-      resultTotal.textContent = formatGiB(result.totalGiB);
+      resultKvCache.textContent = formatGB(result.kvCacheGB);
+      resultKvKeys.textContent = formatGB(result.kvKeysGB);
+      resultKvValues.textContent = formatGB(result.kvValuesGB);
+      resultOverhead.textContent = formatGB(result.overheadGB);
+      resultTotal.textContent = formatGB(result.totalGB);
 
       // TurboQuant comparison table — always uses F16/F16 baseline for the
       // savings column so the comparison is apples-to-apples regardless of
@@ -588,7 +588,7 @@ const faqSchema = {
       turboQuantBody.innerHTML = turboEstimates.map((est) => `
         <tr class="border-b border-base-800">
           <td class="py-2 text-base-200">TurboQuant ${est.label}</td>
-          <td class="py-2 text-right text-base-50">${est.kvCacheGiB.toFixed(3)} GB</td>
+          <td class="py-2 text-right text-base-50">${est.kvCacheGB.toFixed(3)} GB</td>
           <td class="py-2 text-right text-signal-good">−${est.savingsVsF16Pct}%</td>
         </tr>
       `).join("");
@@ -619,7 +619,7 @@ const faqSchema = {
       resultSpeedTier.textContent = tierLabels[tier];
       resultSpeedTier.className = `text-xs mt-1 ${tierColors[tier]}`;
 
-      const fits = result.totalGiB <= availableVram;
+      const fits = result.totalGB <= availableVram;
       const maxContext = maxContextForVram(availableVram, model, quant, batchSize, kvPreset);
       resultMaxContext.textContent = formatTokens(maxContext);
 
@@ -627,7 +627,7 @@ const faqSchema = {
         fitBanner.textContent = `✓ Fits comfortably in ${availableVram}GB VRAM`;
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-good/10 text-signal-good border border-signal-good/30";
       } else {
-        const overBy = result.totalGiB - availableVram;
+        const overBy = result.totalGB - availableVram;
         fitBanner.textContent = `✗ Exceeds ${availableVram}GB VRAM by ${overBy.toFixed(2)}GB`;
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-bad/10 text-signal-bad border border-signal-bad/30";
       }

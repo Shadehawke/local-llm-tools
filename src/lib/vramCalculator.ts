@@ -2,6 +2,10 @@ import { type ModelArchitecture } from "../data/models";
 import { type QuantFormat } from "../data/quants";
 
 const BYTES_PER_GIB = 1024 ** 3;
+// Display + fit budget use decimal GB to match how LM Studio / Ollama / HF
+// report GGUF file sizes; VRAM entered as "12" is treated as a 12 GB budget,
+// which bakes in a ~7% margin for driver/context overhead (safe for "will it fit").
+const BYTES_PER_GB = 1_000_000_000;
 
 /** Flat buffer for CUDA context, framework overhead, activation memory, etc. */
 const FIXED_OVERHEAD_BYTES = 0.6 * BYTES_PER_GIB;
@@ -102,12 +106,12 @@ export interface VramEstimateResult {
   kvValuesBytes: number;
   overheadBytes: number;
   totalBytes: number;
-  weightsGiB: number;
-  kvCacheGiB: number;
-  kvKeysGiB: number;
-  kvValuesGiB: number;
-  overheadGiB: number;
-  totalGiB: number;
+  weightsGB: number;
+  kvCacheGB: number;
+  kvKeysGB: number;
+  kvValuesGB: number;
+  overheadGB: number;
+  totalGB: number;
 }
 
 /**
@@ -203,12 +207,12 @@ export function estimateVram(input: VramEstimateInput): VramEstimateResult {
     kvValuesBytes,
     overheadBytes,
     totalBytes,
-    weightsGiB: weightsBytes / BYTES_PER_GIB,
-    kvCacheGiB: kvCacheBytes / BYTES_PER_GIB,
-    kvKeysGiB: kvKeysBytes / BYTES_PER_GIB,
-    kvValuesGiB: kvValuesBytes / BYTES_PER_GIB,
-    overheadGiB: overheadBytes / BYTES_PER_GIB,
-    totalGiB: totalBytes / BYTES_PER_GIB,
+    weightsGB: weightsBytes / BYTES_PER_GB,
+    kvCacheGB: kvCacheBytes / BYTES_PER_GB,
+    kvKeysGB: kvKeysBytes / BYTES_PER_GB,
+    kvValuesGB: kvValuesBytes / BYTES_PER_GB,
+    overheadGB: overheadBytes / BYTES_PER_GB,
+    totalGB: totalBytes / BYTES_PER_GB,
   };
 }
 
@@ -217,13 +221,13 @@ export function estimateVram(input: VramEstimateInput): VramEstimateResult {
  * Uses the selected KV preset's combined bytes-per-token rate.
  */
 export function maxContextForVram(
-  availableVramGiB: number,
+  availableVramGB: number,
   model: ModelArchitecture,
   quant: QuantFormat,
   batchSize: number,
   kvPreset: KvQuantPreset,
 ): number {
-  const availableBytes = availableVramGiB * BYTES_PER_GIB;
+  const availableBytes = availableVramGB * BYTES_PER_GB;
   const weightsBytes = calculateWeightsBytes(model, quant);
   const remainingForKvCache = availableBytes - weightsBytes - FIXED_OVERHEAD_BYTES;
 
@@ -277,7 +281,7 @@ export interface TurboQuantEstimate {
   label: string;
   bitsPerValue: number;
   kvCacheBytes: number;
-  kvCacheGiB: number;
+  kvCacheGB: number;
   savingsVsF16Pct: number;
 }
 
@@ -286,7 +290,6 @@ export function estimateTurboQuant(
   contextLength: number,
   batchSize: number,
 ): TurboQuantEstimate[] {
-  const BYTES_PER_GIB = 1024 ** 3;
   const baseTerms = model.numLayers * model.numKvHeads * model.headDim * contextLength * batchSize;
   // F16/F16 baseline for savings comparison (2 bytes/value × 2 for K+V)
   const f16Bytes = baseTerms * 2 * 2;
@@ -299,7 +302,7 @@ export function estimateTurboQuant(
       label: `${bits}-bit`,
       bitsPerValue: bits,
       kvCacheBytes,
-      kvCacheGiB: kvCacheBytes / BYTES_PER_GIB,
+      kvCacheGB: kvCacheBytes / BYTES_PER_GB,
       savingsVsF16Pct: Math.round((1 - kvCacheBytes / f16Bytes) * 100),
     };
   });

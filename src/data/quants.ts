@@ -6,10 +6,12 @@
  * file also carries the embedding table, output head, and metadata, which don't
  * shrink at the same rate as the transformer layers.
  *
- * K-QUANT VERIFICATION (June 2026):
- *   Calibrated against bartowski GGUF file sizes for Llama 3/3.1 8B,
- *   Qwen2.5 14B, and Qwen2.5 72B. Q4_K_S and Q5_K_S are interpolated
- *   from adjacent verified values (verified: false).
+ * K-QUANT VERIFICATION (recalibrated July 2026):
+ *   Recomputed from bartowski GGUF decimal-GB file sizes for Llama-3.1-8B
+ *   (file_size_GB / 8.03), cross-checked against Llama-3.1-70B (Q4_K_M 42.5GB,
+ *   Q5_K_M 49.9GB, Q8_0 75GB → 0.60/0.71/1.06, within ~2% of the 8B rates).
+ *   This supersedes the prior pass, which multiplied decimal-GB sizes by 1024^3
+ *   before dividing by params and so overstated every value ≥Q4 by ~7.4%.
  *
  * I-QUANT VERIFICATION (June 2026):
  *   Calibrated against bartowski file sizes for Llama 3/3.1 8B (~8.03B params)
@@ -153,8 +155,8 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q2_k",
     label: "Q2_K",
-    bytesPerParam: 0.38,
-    verified: false,
+    bytesPerParam: 0.40,
+    verified: true,
     description: "2-bit. Emergency-fit only — significant quality loss.",
     qualityTier: "low",
     family: "kq",
@@ -163,7 +165,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
     id: "q3_k_s",
     label: "Q3_K_S",
     bytesPerParam: 0.46,
-    verified: false,
+    verified: true,
     description: "3-bit small. Slightly smaller than Q3_K_M, slightly lower quality.",
     qualityTier: "low",
     family: "kq",
@@ -171,8 +173,8 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q3_k_m",
     label: "Q3_K_M",
-    bytesPerParam: 0.48,
-    verified: false,
+    bytesPerParam: 0.50,
+    verified: true,
     description: "3-bit medium. Usable for casual use; clear drop vs Q4+.",
     qualityTier: "low",
     family: "kq",
@@ -180,8 +182,8 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q3_k_l",
     label: "Q3_K_L",
-    bytesPerParam: 0.51,
-    verified: false,
+    bytesPerParam: 0.54,
+    verified: true,
     description: "3-bit large. Closer to Q4 quality, larger than Q3_K_M.",
     qualityTier: "low",
     family: "kq",
@@ -189,8 +191,8 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q4_k_s",
     label: "Q4_K_S",
-    bytesPerParam: 0.64,
-    verified: false,
+    bytesPerParam: 0.58,
+    verified: true,
     description: "4-bit small. Slightly smaller than Q4_K_M with minor quality tradeoff.",
     qualityTier: "medium",
     family: "kq",
@@ -198,7 +200,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q4_k_m",
     label: "Q4_K_M",
-    bytesPerParam: 0.67,
+    bytesPerParam: 0.61,
     verified: true,
     description: "4-bit medium. Sweet spot for most consumer GPUs.",
     qualityTier: "medium",
@@ -207,8 +209,8 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q5_k_s",
     label: "Q5_K_S",
-    bytesPerParam: 0.74,
-    verified: false,
+    bytesPerParam: 0.70,
+    verified: true,
     description: "5-bit small. Slightly smaller than Q5_K_M.",
     qualityTier: "high",
     family: "kq",
@@ -216,7 +218,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q5_k_m",
     label: "Q5_K_M",
-    bytesPerParam: 0.77,
+    bytesPerParam: 0.71,
     verified: true,
     description: "5-bit medium. Noticeably closer to full precision.",
     qualityTier: "high",
@@ -225,7 +227,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q6_k",
     label: "Q6_K",
-    bytesPerParam: 0.88,
+    bytesPerParam: 0.82,
     verified: true,
     description: "6-bit. Near full-precision quality, for when VRAM allows.",
     qualityTier: "high",
@@ -234,7 +236,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "q8_0",
     label: "Q8_0",
-    bytesPerParam: 1.14,
+    bytesPerParam: 1.06,
     verified: true,
     description: "8-bit. Effectively lossless vs FP16 for most use cases.",
     qualityTier: "lossless-ish",

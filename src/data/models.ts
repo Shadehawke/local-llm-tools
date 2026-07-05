@@ -10,9 +10,9 @@
  * SOURCE-VERIFIED (June 2026): every entry below was checked directly against
  * the model's published config.json on Hugging Face (or, where gated/unavailable,
  * cross-referenced against the official technical report / academic citations).
- * Qwen3-14B was additionally sanity-checked against a real local run: predicted
- * ~13.8GB weights at Q8_0 matches the observed OOM on a 3060 12GB, and ~7.6GB at
- * Q4_K_M matches the observed successful load.
+ * * Qwen3-14B was additionally sanity-checked against a real local run: predicted
+ * ~15.7GB weights at Q8_0 (exceeds a 3060's 12GB, matching the observed OOM) and
+ * ~9.0GB at Q4_K_M (fits, matching the observed successful load).
  *
  * Correction log from the original draft (kept for transparency):
  *   - Qwen3 8B/14B/32B: nativeContextLength corrected 32768 -> 40960 (actual
@@ -63,7 +63,11 @@ export interface ModelArchitecture {
   };
   numKvHeads: number;
   headDim: number;
-  /** Native context length the model was trained/released with. */
+ /**
+   * config.json max_position_embeddings — the positional limit the model ships
+   * with, before RoPE/YaRN scaling. For Qwen3 this is 40960; Qwen's docs also
+   * quote a "native" 32768 recommended cap, and YaRN extends to 131072 separately.
+   */
   nativeContextLength: number;
 }
 
@@ -75,7 +79,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 36,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "qwen3-14b",
@@ -84,7 +88,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 40,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "qwen3-32b",
@@ -93,7 +97,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     numLayers: 64,
     numKvHeads: 8,
     headDim: 128,
-    nativeContextLength: 32768,
+    nativeContextLength: 40960,
   },
   {
     id: "llama3.1-8b",
