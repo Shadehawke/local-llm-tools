@@ -18,18 +18,28 @@ unjustified complexity for what the UI actually needs.
 
 ## Project structure
 
-```
+​```
 src/
-  data/           # Static datasets — model architectures, quant formats, tool registry
-  lib/            # Pure calculation functions (no DOM, no Astro) — testable, reusable
-  layouts/        # BaseLayout.astro — shared shell, SEO meta, OpenGraph
+  data/           # Static datasets:
+                  #   models.ts   — model architectures (verified vs config.json)
+                  #   quants.ts   — GGUF quant bytes-per-param (calibrated)
+                  #   gpus.ts     — GPU bandwidth dataset (TechPowerUp + Apple)
+                  #   tools.ts    — tool registry (homepage + /tools auto-generated)
+  lib/            # Pure calculation functions (no DOM, no Astro):
+                  #   vramCalculator.ts  — weights + split-K/V KV cache + overhead
+                  #   inferenceSpeed.ts  — decode tok/s from GPU bandwidth
+  layouts/        # BaseLayout.astro — shared shell, SEO meta, OpenGraph, analytics
   components/     # (empty for now — extract shared UI here once 2+ tools need it)
   pages/
     index.astro       # Homepage
     tools/
       index.astro     # Tools listing page
-      vram-calculator.astro   # First tool — the template to copy for tools 2-8
-```
+      vram-calculator.astro   # Flagship tool — template to copy for tools 2-8
+    guides/
+      index.astro     # Guides listing page
+      vram-calculator-comparison.astro   # Methodology comparison article
+      rtx-3060-local-llm.astro           # Hardware-specific guide (organic play)
+​```
 
 ## The pattern for adding a new tool
 
@@ -52,34 +62,37 @@ src/
 5. **Build and check.** `npm run build` — catches type errors and broken imports
    before you ever open a browser.
 
-## Data verification status (last checked June 2026)
+## Data verification status (last checked July 2026)
 
-**Model architectures** (`src/data/models.ts`): all 9 models cross-checked
+**Model architectures** (`src/data/models.ts`): all 12 models cross-checked
 directly against published `config.json` files on Hugging Face (or technical
 report citations where the repo is gated). One real error was caught and
 fixed: the original "Mistral Small 22B" entry (56 layers) didn't match any
 actual released checkpoint and has been replaced with the verified
 Mistral-Small-3.1-24B-Instruct-2503 release (40 layers). Native context
-lengths for the Qwen3 family were also corrected from 32768 to the actual
-config value of 40960.
+lengths for the Qwen3 family were corrected from 32768 to the actual
+config.json `max_position_embeddings` of 40960.
 
-**GGUF quant bytes-per-param** (`src/data/quants.ts`): Q4_K_M, Q5_K_M, Q6_K,
-and Q8_0 were recalculated from real published GGUF file sizes (bartowski's
-quants of Llama 3/3.1 8B, Qwen2.5 14B, and Qwen2.5 72B) — the original
-estimates were systematically too low by 10-20%. Q2_K and Q3_K_M are still
-extrapolated rather than directly measured; see the `verified: false` flag
-on those two entries. To finish verification: download a Q2_K or Q3_K_M
-GGUF file for any model with a known param count and divide file size by
-param count.
+**GGUF quant bytes-per-param** (`src/data/quants.ts`): every K-quant is now
+calibrated directly from real bartowski GGUF file sizes (Llama-3.1-8B,
+cross-checked against Llama-3.1-70B), and all are marked `verified: true`.
+A prior pass had inflated the Q4-and-up K-quants by ~7.4% by treating
+decimal-GB file sizes as GiB before dividing by params; that's corrected,
+and the weights figure now matches what LM Studio/Ollama report byte-for-byte.
+The I-quant band (IQ2_M and up) is calibrated as a multi-model average but
+runs slightly rich against single-model 8B sizes — a re-derivation is the
+next calibration cleanup (see roadmap).
 
-## Remaining TODOs before public launch
+## Roadmap / open items
 
-- **Verify Q2_K and Q3_K_M** against real file sizes (see above).
-- **Pick a real domain** and update `site` in `astro.config.mjs` + the sitemap
-  URL in `public/robots.txt`.
-- **No analytics yet.** Decide on a privacy-respecting option (Plausible, Fathom,
-  or Cloudflare Web Analytics) before driving traffic — this is the only signal
-  that tells you whether tool #2 should be the GGUF estimator or something else.
+- **I-quant re-derivation** — the IQ2_M–IQ4_NL band runs ~4-5% rich vs single-
+  model 8B file sizes; re-derive as a multi-model average and re-verify.
+- **Hardware guides** — RTX 4090 (70B tier) and RTX 4060 Ti 16GB (the serious-
+  hobbyist VRAM tier), using the RTX 3060 guide as the template.
+- **Reverse calculator** — "given my GPU, what's the best model I can run?"
+  The GPU bandwidth dataset (`src/data/gpus.ts`) is already in place.
+- **Watch Search Console** for the first non-brand queries — those tell you
+  which GPU/model guide to write next; don't build blind ahead of that signal.
 
 ## Local development
 
