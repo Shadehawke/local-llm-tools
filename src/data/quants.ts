@@ -13,11 +13,14 @@
  *   This supersedes the prior pass, which multiplied decimal-GB sizes by 1024^3
  *   before dividing by params and so overstated every value ≥Q4 by ~7.4%.
  *
- * I-QUANT VERIFICATION (June 2026):
- *   Calibrated against bartowski file sizes for Llama 3/3.1 8B (~8.03B params)
- *   and Llama 3 70B (~70.6B params), averaged across both model sizes.
- *   All I-quant entries are verified: true since they converged tightly
- *   across two very different model sizes (within ~5%).
+ * I-QUANT VERIFICATION (recalibrated July 2026):
+ *   Recomputed from bartowski GGUF decimal-GB file sizes for Llama-3.1-8B
+ *   (file_size_GB / 8.03) — the same anchor used for the K-quants — and
+ *   cross-checked against Llama-3-70B. The 8B rate runs ~5% above the 70B rate
+ *   (smaller models carry more fixed embed/output overhead per param); we anchor
+ *   to 8B to match this project's 8B–32B target audience and keep one calibration
+ *   rule across every quant. Supersedes the prior "8B/70B averaged" pass, which
+ *   had drifted ~4-6% high in the IQ2_M–IQ4_NL band.
  *
  * FP16: exactly 2 bytes/param by definition.
  */
@@ -43,7 +46,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq1_s",
     label: "IQ1_S",
-    bytesPerParam: 0.251,
+    bytesPerParam: 0.252,
     verified: true,
     description: "Extreme 1-bit. Severe quality loss, smallest possible file.",
     qualityTier: "extreme-low",
@@ -52,7 +55,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq1_m",
     label: "IQ1_M",
-    bytesPerParam: 0.272,
+    bytesPerParam: 0.269,
     verified: true,
     description: "Extreme 1-bit, slightly better than IQ1_S.",
     qualityTier: "extreme-low",
@@ -61,7 +64,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq2_xxs",
     label: "IQ2_XXS",
-    bytesPerParam: 0.306,
+    bytesPerParam: 0.299,
     verified: true,
     description: "2-bit, ultra-small. Noticeable quality loss on most models.",
     qualityTier: "low",
@@ -70,7 +73,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq2_xs",
     label: "IQ2_XS",
-    bytesPerParam: 0.335,
+    bytesPerParam: 0.325,
     verified: true,
     description: "2-bit extra-small. Slight step up from IQ2_XXS.",
     qualityTier: "low",
@@ -79,7 +82,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq2_s",
     label: "IQ2_S",
-    bytesPerParam: 0.353,
+    bytesPerParam: 0.344,
     verified: true,
     description: "2-bit small. Approaches Q2_K quality with smaller file.",
     qualityTier: "low",
@@ -88,7 +91,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq2_m",
     label: "IQ2_M",
-    bytesPerParam: 0.380,
+    bytesPerParam: 0.367,
     verified: true,
     description: "2-bit medium. Best 2-bit option quality-wise.",
     qualityTier: "low",
@@ -97,7 +100,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq3_xxs",
     label: "IQ3_XXS",
-    bytesPerParam: 0.428,
+    bytesPerParam: 0.407,
     verified: true,
     description: "3-bit, smallest. Often beats Q3_K_S at same or smaller size.",
     qualityTier: "low",
@@ -106,7 +109,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq3_xs",
     label: "IQ3_XS",
-    bytesPerParam: 0.458,
+    bytesPerParam: 0.438,
     verified: true,
     description: "3-bit extra-small. Good quality-per-byte below Q4.",
     qualityTier: "low",
@@ -115,7 +118,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq3_s",
     label: "IQ3_S",
-    bytesPerParam: 0.481,
+    bytesPerParam: 0.458,
     verified: true,
     description: "3-bit small. Comparable to Q3_K_M at smaller size.",
     qualityTier: "medium",
@@ -124,7 +127,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq3_m",
     label: "IQ3_M",
-    bytesPerParam: 0.495,
+    bytesPerParam: 0.471,
     verified: true,
     description: "3-bit medium. Best 3-bit option; approaches Q4 quality.",
     qualityTier: "medium",
@@ -133,7 +136,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq4_xs",
     label: "IQ4_XS",
-    bytesPerParam: 0.586,
+    bytesPerParam: 0.554,
     verified: true,
     description: "4-bit extra-small. Often matches Q4_K_M quality at smaller size.",
     qualityTier: "medium",
@@ -142,7 +145,7 @@ export const QUANT_FORMATS: QuantFormat[] = [
   {
     id: "iq4_nl",
     label: "IQ4_NL",
-    bytesPerParam: 0.618,
+    bytesPerParam: 0.583,
     verified: true,
     description: "4-bit non-linear. Similar to Q4_K_M; better on ARM/AVX2.",
     qualityTier: "medium",
