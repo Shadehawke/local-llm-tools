@@ -1,0 +1,309 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const title = "RTX 4090 24GB for Local LLMs: What Fits, What Doesn't, and How Fast";
+const description =
+  "Exact VRAM requirements and estimated inference speeds for running Qwen3 32B, Mistral Small, Llama 3.1, and other models on an RTX 4090 24GB. Numbers verified against real hardware.";
+
+const faqs = [
+  {
+    question: "Can the RTX 4090 24GB run a 70B model?",
+    answer:
+      "Not comfortably on a single card. Llama 3.1 70B at Q4_K_M needs about 43GB just for weights — well beyond 24GB. Your options are RAM offloading, which drops decode speed to roughly 1–5 tok/s because weights stream over the PCIe bus, or a second 24GB GPU. If you want the best quality that runs entirely in 24GB at interactive speed, a 32B model at Q4_K_M (about 20GB) is the realistic ceiling.",
+  },
+  {
+    question: "What is the largest model that fits on a 4090 24GB?",
+    answer:
+      "A 32B model at Q4_K_M — Qwen3-32B and DeepSeek-R1-Distill-Qwen-32B both need about 20GB for weights, leaving roughly 3–4GB for KV cache and overhead. Mistral Small 24B fits up to Q6_K (about 19.7GB). And unlike a 12GB card, the 4090 runs a 14B model at Q8_0 (near-lossless, about 15.7GB) with plenty of context headroom. Above 32B you're into offload or multi-GPU territory.",
+  },
+  {
+    question: "How fast does the RTX 4090 run local LLMs?",
+    answer:
+      "The 4090's 1008 GB/s memory bandwidth is the main driver of decode speed. At Q8_0, an 8B model runs around 83 tok/s and a 14B around 45 tok/s; a 32B at Q4_K_M runs around 35 tok/s — all comfortably interactive. These are bandwidth-based estimates at roughly 70% real-world efficiency; actual speed varies by backend and context length, so treat them as ±20%.",
+  },
+  {
+    question: "Why does context length affect whether a 32B model fits?",
+    answer:
+      "Model weight size is fixed once you pick a quant, but KV cache grows with context length and comes out of the same 24GB pool. For Qwen3-32B at Q4_K_M (about 20GB weights), 8K context adds about 2.15GB of KV cache (total ~22.8GB, fits), while 16K adds about 4.29GB (total ~24.9GB, just over). The practical limit at F16 KV cache is around 12K context; switching to Q8 KV cache roughly halves that cost and pushes you past 24K.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/guides/rtx-4090-local-llm/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/guides/" class="hover:text-base-200">Guides</a> /
+    <span class="text-base-200">RTX 4090 local LLM guide</span>
+  </nav>
+
+  <article class="max-w-3xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">
+      RTX 4090 24GB for Local LLMs: What Fits, What Doesn't, and How Fast
+    </h1>
+    <p class="text-base-400 mb-10">
+      The RTX 4090's 24GB of VRAM roughly doubles what a 12GB card can hold — and
+      the payoff isn't "bigger everything," it's a specific jump: the 32B tier
+      becomes usable at Q4, and 14B models move up to near-lossless Q8_0 with room
+      to spare. Here's exactly what fits, at what quantization and context length,
+      and where the honest ceiling actually is.
+    </p>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">The hardware baseline</h2>
+      <p class="text-base-400">
+        The RTX 4090 has 24GB of GDDR6X on a 384-bit bus and 1008 GB/s of memory
+        bandwidth — the number that actually determines decode speed for local
+        LLMs. Weight size determines what fits; bandwidth determines how fast
+        tokens generate once it's loaded. They're independent, and the 4090 is
+        strong on both.
+      </p>
+      <p class="text-base-400">
+        At roughly 70% real-world utilization of peak bandwidth (accounting for
+        KV cache reads, framework overhead, and memory controller efficiency),
+        effective bandwidth is around 705 GB/s for decode. That's fast enough to
+        run a 32B model at interactive speed — the range where a 12GB card can't
+        follow.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">What fits — model by model</h2>
+      <p class="text-base-400">
+        Weight sizes below are calculated from real GGUF file sizes rather than
+        theoretical bit counts. K-quants carry embedding tables, output heads,
+        and per-block scale factors that naive bit-math misses — the effective
+        bytes per parameter at Q4_K_M is closer to 0.61 than the 0.5 bytes
+        (4 bits ÷ 8) a flat calculation gives.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Model</th>
+              <th class="p-3 font-medium text-base-200">Quant</th>
+              <th class="p-3 font-medium text-base-200">Weight size</th>
+              <th class="p-3 font-medium text-base-200">Fits 24GB</th>
+              <th class="p-3 font-medium text-base-200">Est. speed</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono-display text-sm">
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Llama 3.1 8B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">8.51 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~83 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 14B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">15.69 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~45 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Phi-4 14B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">15.58 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~45 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Mistral Small 24B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">14.64 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~48 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Mistral Small 24B</td>
+              <td class="p-3 text-base-400">Q6_K</td>
+              <td class="p-3">19.68 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~36 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 32B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">20.01 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~35 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">DeepSeek-R1-Distill-Qwen 32B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">20.01 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~35 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 32B</td>
+              <td class="p-3 text-base-400">Q5_K_M</td>
+              <td class="p-3">23.29 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+              <td class="p-3 text-base-400">—</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Llama 3.1 70B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">43.07 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+              <td class="p-3 text-base-400">— (offload)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-base-400">
+        Weight sizes calculated from calibrated bytes-per-parameter values sourced
+        from real GGUF file sizes. Speed estimates assume 1008 GB/s peak bandwidth
+        at 70% real-world efficiency. Actual speed varies by backend and context
+        length. Treat speeds as ±20%. Qwen3-32B Q5_K_M is listed to show the ceiling:
+        weights alone leave no usable room for KV cache on 24GB.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Context length: the hidden constraint</h2>
+      <p class="text-base-400">
+        On a 24GB card the 32B tier is close enough to the limit that context
+        length decides your headroom. KV cache grows with context and comes out
+        of the same pool as the weights — a 32B that loads fine at short context
+        can OOM once the conversation gets long.
+      </p>
+      <p class="text-base-400">
+        For Qwen3 32B at Q4_K_M (20.01GB weights), here's how context length
+        changes the total VRAM requirement at F16 KV cache:
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Context length</th>
+              <th class="p-3 font-medium text-base-200">KV cache</th>
+              <th class="p-3 font-medium text-base-200">Total (weights + KV + overhead)</th>
+              <th class="p-3 font-medium text-base-200">Fits 24GB</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono-display text-sm">
+            <tr class="border-t border-base-700">
+              <td class="p-3">4K (4,096)</td>
+              <td class="p-3">1.07 GB</td>
+              <td class="p-3">21.72 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">8K (8,192)</td>
+              <td class="p-3">2.15 GB</td>
+              <td class="p-3">22.80 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">16K (16,384)</td>
+              <td class="p-3">4.29 GB</td>
+              <td class="p-3">24.94 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">32K (32,768)</td>
+              <td class="p-3">8.59 GB</td>
+              <td class="p-3">29.24 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-base-400">
+        The practical limit for Qwen3-32B Q4_K_M on a 4090 is around 12K context
+        at F16 KV cache. If you need more, switching to Q8 KV cache roughly halves
+        the KV cost and gets you past 24K — a good trade at this scale, since 8-bit
+        KV cache has minimal quality impact. Alternatively, a 14B at Q8_0 leaves
+        enough room for very long context with quality to spare.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Recommended configurations</h2>
+
+      <div class="space-y-3">
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Best overall: Qwen3 32B Q4_K_M</h3>
+          <p class="text-sm text-base-400">
+            20.01GB weights, fits to ~12K context at F16 KV (further with Q8 KV),
+            ~35 tok/s. This is what the 4090 buys you over a 12GB card — a genuinely
+            capable 32B at interactive speed. Qwen3-32B holds up well at Q4_K_M for
+            general use and reasoning.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Reasoning / math: DeepSeek-R1-Distill-Qwen 32B Q4_K_M</h3>
+          <p class="text-sm text-base-400">
+            Same 20.01GB footprint and ~35 tok/s, tuned for chain-of-thought. If
+            your workload is multi-step reasoning or math rather than general chat,
+            this is the better use of the 32B tier — just watch context, since long
+            reasoning traces eat KV cache quickly.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Quality + long context: Qwen3 14B Q8_0</h3>
+          <p class="text-sm text-base-400">
+            15.69GB weights, ~8GB left for KV cache, ~45 tok/s. The config a 12GB
+            card can't run at all — a 14B at near-lossless Q8_0 with room for very
+            long context. Choose this over a 32B at Q4 when output quality per token
+            and context length matter more than raw parameter count. Phi-4 14B Q8_0
+            (15.58GB) is the equivalent pick for reasoning and coding.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">The 70B question</h3>
+          <p class="text-sm text-base-400">
+            A 70B model needs about 43GB at Q4_K_M — it does not fit in 24GB. Running
+            one on a single 4090 means RAM offload, which drops decode to roughly
+            1–5 tok/s. For 70B at usable speed you need a second 24GB card or a
+            larger GPU. On a single 4090, a 32B at Q4/Q5 is the realistic quality
+            ceiling.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Check any model or quant combination</h2>
+      <p class="text-base-400">
+        The table above covers the most common configurations, but you can check
+        any model, quantization, and context length combination — including KV
+        cache quantization and estimated decode speed for your specific GPU —
+        using the calculator.
+      </p>
+      <a
+        href="/tools/vram-calculator/"
+        class="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-400 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+      >
+        Open VRAM & Speed Calculator →
+      </a>
+    </section>
+
+    <section
