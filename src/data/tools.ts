@@ -19,6 +19,13 @@ export const TOOLS: ToolEntry[] = [
     status: "live",
   },
   {
+    slug: "what-can-i-run",
+    title: "What Can I Run?",
+    shortDescription:
+      "Pick your GPU and see the best local LLM it can run — the highest-quality quant that fits, with estimated speed.",
+    status: "live",
+  },
+  {
     slug: "gguf-size-estimator",
     title: "GGUF Size Estimator",
     shortDescription: "Estimate GGUF file size before downloading, by quant level.",

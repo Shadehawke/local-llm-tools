@@ -1,0 +1,353 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { GPU_ENTRIES, type GpuEntry } from "../../data/gpus";
+import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
+
+const title = "What Can I Run? — Best Local LLM for Your GPU";
+const description =
+  "Pick your GPU and see the best local LLM you can actually run — the highest-quality quant that fits, with estimated decode speed and context headroom. Uses the same engine as the VRAM calculator.";
+
+// Group GPUs for the dropdown; reduce preserves dataset order within each group,
+// and object insertion order preserves the group order (30 → 40 → 50 → AMD → Apple → Custom).
+const gpuGroups = GPU_ENTRIES.reduce<Record<string, GpuEntry[]>>((acc, gpu) => {
+  (acc[gpu.group] ??= []).push(gpu);
+  return acc;
+}, {});
+
+const contextOptions = [
+  { value: 4096, label: "4K (4,096)" },
+  { value: 8192, label: "8K (8,192)" },
+  { value: 16384, label: "16K (16,384)" },
+  { value: 32768, label: "32K (32,768)" },
+];
+
+const faqs = [
+  {
+    question: "How do you decide the \"best\" model?",
+    answer:
+      "It's the largest model (by parameter count) that fits your VRAM at Q4_K_M-class quality or better, at your chosen context length. Parameter count is a capability proxy, not a benchmark — a strong 14B can beat a weak 32B on a given task — so treat the ranking as a starting point, not a verdict. Models that only fit below Q4 are shown separately as reduced-quality options rather than hidden.",
+  },
+  {
+    question: "Why does changing context length change the recommendation?",
+    answer:
+      "KV cache grows with context length and competes with model weights for the same VRAM. On a tightly-sized card the best model can flip purely on this: a 24B at Q4 might fit at 4K context but not at 8K, at which point a 14B at higher quant becomes the better pick. That's why context is a first-class input here, not an afterthought.",
+  },
+  {
+    question: "Are these speeds real?",
+    answer:
+      "They're bandwidth-based estimates: decode is memory-bandwidth-bound at batch size 1, so tokens/sec ≈ effective bandwidth ÷ bytes read per token, at roughly 70% real-world efficiency. Treat them as ±20%. Actual speed varies with backend (llama.cpp, Ollama, MLX), context length, and thermal limits.",
+  },
+  {
+    question: "My GPU isn't listed, or I want to check a specific model.",
+    answer:
+      "Choose \"Custom\" and enter your VRAM and memory bandwidth directly. For a specific model, quant, and KV cache split — including I-quants and per-K/V quantization — use the VRAM calculator, which this tool is built on top of.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: { "@type": "Answer", text: faq.answer },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/tools/what-can-i-run/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/tools/" class="hover:text-base-200">Tools</a> /
+    <span class="text-base-200">What Can I Run?</span>
+  </nav>
+
+  <div class="max-w-4xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">What Can I Run?</h1>
+    <p class="text-base-400 mb-8">
+      Pick your GPU and see the best local LLM it can actually run — the
+      highest-quality quant that fits your VRAM at your chosen context length,
+      with an estimated decode speed. Built on the same engine as the
+      <a href="/tools/vram-calculator/" class="text-accent-400 hover:underline">VRAM calculator</a>,
+      so the numbers match.
+    </p>
+
+    <!-- Inputs -->
+    <div class="bg-base-900 border border-base-700 rounded-xl p-5 mb-8">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Your GPU</span>
+          <select
+            id="gpu-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {Object.entries(gpuGroups).map(([group, gpus]) => (
+              <optgroup label={group}>
+                {gpus.map((gpu) => (
+                  <option value={gpu.id} selected={gpu.id === "rtx3060-12gb"}>
+                    {gpu.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Context length</span>
+          <select
+            id="context-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {contextOptions.map((opt) => (
+              <option value={opt.value} selected={opt.value === 8192}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">KV cache</span>
+          <select
+            id="kv-preset-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {KV_QUANT_PRESETS.map((preset) => (
+              <option value={preset.id}>{preset.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <!-- Custom GPU fields, revealed only when "Custom" is selected -->
+      <div id="custom-fields" class="hidden gap-4 sm:grid-cols-2 mt-4">
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">VRAM (GB)</span>
+          <input
+            id="custom-vram-input"
+            type="number"
+            min="1"
+            step="1"
+            value="16"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          />
+        </label>
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Memory bandwidth (GB/s)</span>
+          <input
+            id="custom-bandwidth-input"
+            type="number"
+            min="1"
+            step="1"
+            value="500"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          />
+        </label>
+      </div>
+    </div>
+
+    <!-- Headline -->
+    <div id="headline" class="bg-base-900 border border-accent-500/30 rounded-xl p-5 mb-4"></div>
+
+    <!-- None-fit hint -->
+    <div id="none-fit" class="hidden bg-base-900 border border-signal-warn/30 rounded-xl p-5 mb-4">
+      <p class="text-sm text-base-400">
+        Try a shorter context length, or switch KV cache to Q8 or Q4 to free up room —
+        smaller KV cache often makes the difference on tightly-sized cards.
+      </p>
+    </div>
+
+    <!-- Recommended -->
+    <div id="recommended-wrap" class="mb-8">
+      <h2 class="text-lg font-semibold text-base-50 mb-1">Recommended</h2>
+      <p class="text-xs text-base-400 mb-3">Fits at Q4_K_M-class quality or better, best model first.</p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Model</th>
+              <th class="p-3 font-medium text-base-200">Best quant</th>
+              <th class="p-3 font-medium text-base-200">VRAM used</th>
+              <th class="p-3 font-medium text-base-200">Headroom</th>
+              <th class="p-3 font-medium text-base-200">Est. speed</th>
+            </tr>
+          </thead>
+          <tbody id="recommended-body" class="font-mono-display text-sm"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Reduced quality -->
+    <div id="reduced-section" class="hidden mb-8">
+      <h2 class="text-lg font-semibold text-base-50 mb-1">Fits only at reduced quality</h2>
+      <p class="text-xs text-base-400 mb-3">
+        These fit only below Q4_K_M (Q3/Q2 class). They run, but with a noticeable
+        quality drop — worth it only when the larger model genuinely matters.
+      </p>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Model</th>
+              <th class="p-3 font-medium text-base-200">Best quant</th>
+              <th class="p-3 font-medium text-base-200">VRAM used</th>
+              <th class="p-3 font-medium text-base-200">Headroom</th>
+              <th class="p-3 font-medium text-base-200">Est. speed</th>
+            </tr>
+          </thead>
+          <tbody id="reduced-body" class="font-mono-display text-sm"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Cross-link -->
+    <div class="bg-base-900 border border-accent-500/30 rounded-xl p-5 flex items-start justify-between gap-4 mb-14">
+      <div>
+        <h2 class="text-sm font-semibold text-base-50 mb-1">Want to check a specific combination?</h2>
+        <p class="text-xs text-base-400">
+          Pick an exact model, quant, KV split, and context length — including I-quants —
+          in the full calculator.
+        </p>
+      </div>
+      <a
+        href="/tools/vram-calculator/"
+        class="shrink-0 text-xs border border-accent-500/40 text-accent-400 hover:bg-accent-500/10 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+      >
+        Open VRAM Calculator →
+      </a>
+    </div>
+
+    <!-- How this works -->
+    <section class="space-y-4 mb-14 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">How this works</h2>
+      <p class="text-base-400">
+        For every model in the dataset, this tool walks the standard K-quant ladder
+        from Q8_0 down and picks the highest-quality quant whose total VRAM —
+        weights plus KV cache plus overhead — fits your card at the chosen context.
+        It calls the exact same estimation functions as the VRAM calculator, so the
+        two tools can't disagree.
+      </p>
+      <p class="text-base-400">
+        "Best" is ranked by parameter count among models that fit at Q4_K_M-class
+        quality or better, on the general principle that a larger model at a solid
+        quant tends to beat a smaller one at higher precision. That's a proxy, not a
+        benchmark — a strong 14B can outperform a weak 32B on your specific task, so
+        use the ranking as a shortlist rather than a ruling. Speed is a
+        bandwidth-based estimate at ~70% efficiency; treat it as ±20%.
+      </p>
+      <p class="text-base-400">
+        The tool sticks to K-quants because they're the standard downloads and form
+        a clean quality ladder. If you're trying to squeeze a larger model into tight
+        VRAM with an I-quant, that's a deliberate power-user tradeoff — do it in the
+        full calculator, where every quant and KV cache option is available.
+      </p>
+    </section>
+
+    <section class="space-y-5 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">FAQ</h2>
+      {faqs.map((faq) => (
+        <div>
+          <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+          <p class="text-sm text-base-400">{faq.answer}</p>
+        </div>
+      ))}
+    </section>
+  </div>
+
+  <script>
+    import { getGpuById } from "../../data/gpus";
+    import { getKvPresetById } from "../../lib/vramCalculator";
+    import { findRunnableModels, type RunnableModel } from "../../lib/modelFinder";
+
+    const gpuSelect = document.getElementById("gpu-select") as HTMLSelectElement;
+    const contextSelect = document.getElementById("context-select") as HTMLSelectElement;
+    const kvSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
+    const customFields = document.getElementById("custom-fields") as HTMLDivElement;
+    const customVramInput = document.getElementById("custom-vram-input") as HTMLInputElement;
+    const customBandwidthInput = document.getElementById("custom-bandwidth-input") as HTMLInputElement;
+    const headlineEl = document.getElementById("headline") as HTMLDivElement;
+    const noneFitEl = document.getElementById("none-fit") as HTMLDivElement;
+    const recommendedWrap = document.getElementById("recommended-wrap") as HTMLDivElement;
+    const recommendedBody = document.getElementById("recommended-body") as HTMLTableSectionElement;
+    const reducedSection = document.getElementById("reduced-section") as HTMLDivElement;
+    const reducedBody = document.getElementById("reduced-body") as HTMLTableSectionElement;
+
+    const ctxLabel = (n: number): string => (n >= 1024 ? `${n / 1024}K` : String(n));
+
+    const speedClass = (tier: RunnableModel["speedTier"]): string => {
+      switch (tier) {
+        case "fast": return "text-signal-good";
+        case "ok": return "text-base-200";
+        case "slow": return "text-signal-warn";
+        default: return "text-signal-bad"; // very_slow
+      }
+    };
+
+    function rowHtml(r: RunnableModel): string {
+      const tight =
+        r.fitQuality === "tight"
+          ? ` <span class="text-[10px] uppercase tracking-wide text-signal-warn border border-signal-warn/40 rounded px-1 py-0.5">tight</span>`
+          : "";
+      const moe = r.model.isMoE ? ` <span class="text-[10px] text-accent-400">MoE</span>` : "";
+      const extrap = r.usesExtrapolatedQuant
+        ? ` <span class="text-base-400" title="Quant size extrapolated, not measured">*</span>`
+        : "";
+      return `
+        <tr class="border-t border-base-700">
+          <td class="p-3 text-base-200">${r.model.label}${moe}</td>
+          <td class="p-3 text-base-400">${r.bestQuant.label}${extrap}</td>
+          <td class="p-3">${r.totalGB.toFixed(2)} GB${tight}</td>
+          <td class="p-3 text-base-400">${r.headroomGB.toFixed(2)} GB</td>
+          <td class="p-3 ${speedClass(r.speedTier)}">~${Math.round(r.tokensPerSecond)} tok/s</td>
+        </tr>`;
+    }
+
+    function render(): void {
+      const gpu = getGpuById(gpuSelect.value);
+      const isCustom = gpu.id === "custom";
+      customFields.classList.toggle("hidden", !isCustom);
+      customFields.classList.toggle("grid", isCustom);
+
+      const contextLength = Number(contextSelect.value);
+      const kvPreset = getKvPresetById(kvSelect.value);
+
+      const customVramGB = Number(customVramInput.value) || gpu.vramGB;
+      const customBandwidthGBs = Number(customBandwidthInput.value) || gpu.bandwidthGBs;
+      const vramGB = isCustom ? customVramGB : gpu.vramGB;
+      const gpuLabel = isCustom ? `${vramGB}GB custom GPU` : gpu.label;
+
+      const result = findRunnableModels(gpu, contextLength, kvPreset, {
+        customVramGB,
+        customBandwidthGBs,
+      });
+
+      if (!result.headline) {
+        headlineEl.innerHTML = `<p class="text-lg font-semibold text-base-200">No model in the dataset fits ${gpuLabel} at ${ctxLabel(contextLength)} context.</p>`;
+        noneFitEl.classList.remove("hidden");
+      } else {
+        noneFitEl.classList.add("hidden");
+        const h = result.headline;
+        headlineEl.innerHTML = `
+          <p class="text-xs uppercase tracking-wide text-accent-400 mb-1">Best model for your ${gpuLabel}</p>
+          <p class="text-2xl font-bold text-base-50">${h.model.label} <span class="text-accent-400">${h.bestQuant.label}</span></p>
+          <p class="text-sm text-base-400 mt-2">${h.totalGB.toFixed(2)} GB used of ${vramGB} GB · ~${Math.round(h.tokensPerSecond)} tok/s · ${ctxLabel(contextLength)} context</p>`;
+      }
+
+      recommendedBody.innerHTML = result.recommended.map(rowHtml).join("");
+      recommendedWrap.classList.toggle("hidden", result.recommended.length === 0);
+
+      reducedBody.innerHTML = result.reduced.map(rowHtml).join("");
+      reducedSection.classList.toggle("hidden", result.reduced.length === 0);
+    }
+
+    [gpuSelect, contextSelect, kvSelect, customVramInput, customBandwidthInput].forEach((el) => {
+      el.addEventListener("change", render);
+      el.addEventListener("input", render);
+    });
+
+    render();
+  </script>
+</BaseLayout>
