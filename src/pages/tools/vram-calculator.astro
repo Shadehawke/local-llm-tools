@@ -288,8 +288,8 @@ const faqSchema = {
           <p class="text-xs text-signal-warn px-1">
             ⚠ MoE model — weight VRAM is based on <strong id="moe-total-params">—</strong> total parameters.
             All experts must be resident in memory even though only <strong id="moe-active-params">—</strong>
-            are active per token. KV cache estimate currently assumes standard dense attention
-            and may overcount for this model's hybrid attention layers.
+            are active per token. KV cache is shown separately below and reflects this model's
+            actual attention architecture.
           </p>
         </div>
         <div class="flex justify-between border-b border-base-700 pb-2">
