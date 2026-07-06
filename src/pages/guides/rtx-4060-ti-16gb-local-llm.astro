@@ -1,0 +1,323 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const title = "RTX 4060 Ti 16GB for Local LLMs: What Fits, What Doesn't, and How Fast";
+const description =
+  "Exact VRAM requirements and estimated inference speeds for running Qwen3 14B, Mistral Small, Llama 3.1, and other models on an RTX 4060 Ti 16GB — including the bandwidth tradeoff that makes it slower than a 3060.";
+
+const faqs = [
+  {
+    question: "Is the RTX 4060 Ti 16GB good for local LLMs?",
+    answer:
+      "It depends what you want. The 16GB is real and lets you run a 14B model at Q6_K quality or a 24B at Q4 — more than a 12GB 3060 can hold. But the 128-bit memory bus caps bandwidth at 288 GB/s, below the 3060's 360 GB/s, so it generates tokens slower. It's a capacity card, not a speed card: buy it to fit bigger or higher-quality models, not to run them fast.",
+  },
+  {
+    question: "What is the largest model that fits on a 4060 Ti 16GB?",
+    answer:
+      "Mistral Small 24B at Q4_K_M (about 14.6GB) fits, but only at short context — roughly 4K tokens before KV cache pushes it over 16GB. More comfortably, a 14B model fits up to Q6_K (about 12.1GB) with room for long context. A 14B at Q8_0 (about 15.7GB) technically loads but leaves almost nothing for KV cache. Qwen3-32B needs about 20GB and does not fit.",
+  },
+  {
+    question: "How fast does the RTX 4060 Ti 16GB run local LLMs?",
+    answer:
+      "Its 288 GB/s memory bandwidth works out to roughly 201 GB/s effective for decode. That gives about 24 tok/s for an 8B model at Q8_0, about 17 tok/s for a 14B at Q6_K, and about 14 tok/s for a 24B at Q4_K_M. Usable, but slower than a 3060 on the same model despite the larger VRAM — the narrow 128-bit bus is the limiting factor.",
+  },
+  {
+    question: "RTX 4060 Ti 16GB or RTX 3060 12GB for local LLMs?",
+    answer:
+      "The 16GB fits bigger models, higher quants, and longer context; the 3060's 360 GB/s runs about 20% faster per token. If the model you want fits in 12GB, the 3060 is the faster and cheaper choice. If you need the extra 4GB for a 14B at Q6_K/Q8_0 or a 24B at Q4, the 4060 Ti 16GB earns its place — as long as you accept slower generation as the price of capacity.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: faq.answer,
+    },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/guides/rtx-4060-ti-16gb-local-llm/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/guides/" class="hover:text-base-200">Guides</a> /
+    <span class="text-base-200">RTX 4060 Ti 16GB local LLM guide</span>
+  </nav>
+
+  <article class="max-w-3xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">
+      RTX 4060 Ti 16GB for Local LLMs: What Fits, What Doesn't, and How Fast
+    </h1>
+    <p class="text-base-400 mb-10">
+      The RTX 4060 Ti 16GB is the card a lot of serious hobbyists land on — 16GB
+      of VRAM at a mid-range price. But it comes with a catch that raw capacity
+      hides: a 128-bit memory bus that gives it less bandwidth than a 3060,
+      despite holding more. That shapes everything about what it's good for. Here's
+      exactly what fits, at what quant and context, and where the speed tradeoff
+      actually bites.
+    </p>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">The hardware baseline</h2>
+      <p class="text-base-400">
+        The RTX 4060 Ti 16GB has 16GB of GDDR6 on a 128-bit bus, giving 288 GB/s
+        of memory bandwidth. That's the number that determines decode speed — and
+        it's the card's weak point. A 3060, one tier down in VRAM, runs a 192-bit
+        bus at 360 GB/s. So the 4060 Ti holds more but feeds it slower.
+      </p>
+      <p class="text-base-400">
+        At roughly 70% real-world utilization (accounting for KV cache reads,
+        framework overhead, and memory controller efficiency), effective bandwidth
+        is around 201 GB/s for decode — below the 3060's ~252 GB/s. The practical
+        consequence: the 16GB lets you fit models a 3060 can't, but you generate
+        tokens more slowly once they're loaded. This card rewards capacity-bound
+        workloads, not speed-bound ones.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">What fits — model by model</h2>
+      <p class="text-base-400">
+        Weight sizes below are calculated from real GGUF file sizes rather than
+        theoretical bit counts. K-quants carry embedding tables, output heads,
+        and per-block scale factors that naive bit-math misses — the effective
+        bytes per parameter at Q4_K_M is closer to 0.61 than the 0.5 bytes
+        (4 bits ÷ 8) a flat calculation gives.
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Model</th>
+              <th class="p-3 font-medium text-base-200">Quant</th>
+              <th class="p-3 font-medium text-base-200">Weight size</th>
+              <th class="p-3 font-medium text-base-200">Fits 16GB</th>
+              <th class="p-3 font-medium text-base-200">Est. speed</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono-display text-sm">
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Llama 3.1 8B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">8.51 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~24 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Gemma 2 9B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">9.79 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~21 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 14B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">9.03 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~22 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 14B</td>
+              <td class="p-3 text-base-400">Q5_K_M</td>
+              <td class="p-3">10.51 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~19 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 14B</td>
+              <td class="p-3 text-base-400">Q6_K</td>
+              <td class="p-3">12.14 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~17 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Phi-4 14B</td>
+              <td class="p-3 text-base-400">Q6_K</td>
+              <td class="p-3">12.05 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~17 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 14B</td>
+              <td class="p-3 text-base-400">Q8_0</td>
+              <td class="p-3">15.69 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+              <td class="p-3 text-base-400">—</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Mistral Small 24B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">14.64 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+              <td class="p-3 text-signal-good">~14 tok/s</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Mistral Small 24B</td>
+              <td class="p-3 text-base-400">Q5_K_M</td>
+              <td class="p-3">17.04 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+              <td class="p-3 text-base-400">—</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">Qwen3 32B</td>
+              <td class="p-3 text-base-400">Q4_K_M</td>
+              <td class="p-3">20.01 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+              <td class="p-3 text-base-400">—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-xs text-base-400">
+        Weight sizes calculated from calibrated bytes-per-parameter values sourced
+        from real GGUF file sizes. Speed estimates assume 288 GB/s peak bandwidth
+        at 70% real-world efficiency. Actual speed varies by backend and context
+        length. Treat speeds as ±20%. Qwen3-14B Q8_0 is marked ✗ because although
+        15.69GB of weights loads, it leaves almost no room for KV cache — you can't
+        actually run it at usable context.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Context length: the hidden constraint</h2>
+      <p class="text-base-400">
+        The 16GB is what lets you run a 14B at higher quant than a 12GB card — but
+        the higher the quant, the less room is left for KV cache, which grows with
+        context length and comes out of the same pool. Here's how context changes
+        the total for Qwen3 14B at Q6_K (12.14GB weights), at F16 KV cache:
+      </p>
+
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">Context length</th>
+              <th class="p-3 font-medium text-base-200">KV cache</th>
+              <th class="p-3 font-medium text-base-200">Total (weights + KV + overhead)</th>
+              <th class="p-3 font-medium text-base-200">Fits 16GB</th>
+            </tr>
+          </thead>
+          <tbody class="font-mono-display text-sm">
+            <tr class="border-t border-base-700">
+              <td class="p-3">4K (4,096)</td>
+              <td class="p-3">0.67 GB</td>
+              <td class="p-3">13.45 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">8K (8,192)</td>
+              <td class="p-3">1.34 GB</td>
+              <td class="p-3">14.12 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">16K (16,384)</td>
+              <td class="p-3">2.68 GB</td>
+              <td class="p-3">15.46 GB</td>
+              <td class="p-3 text-signal-good">✓</td>
+            </tr>
+            <tr class="border-t border-base-700">
+              <td class="p-3">32K (32,768)</td>
+              <td class="p-3">5.37 GB</td>
+              <td class="p-3">18.15 GB</td>
+              <td class="p-3 text-signal-bad">✗</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <p class="text-base-400">
+        Qwen3-14B at Q6_K fits to roughly 18–20K context on 16GB — a real win over
+        a 12GB card, which can only run the same model at Q4_K_M and to about 8K.
+        The 16GB buys you both higher quant and longer context on a 14B. If you need
+        to go further, Q8 KV cache roughly halves the KV cost. The tradeoff is speed:
+        Q6_K runs around 17 tok/s here versus about 28 tok/s for Q4_K_M on a 3060.
+      </p>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Recommended configurations</h2>
+
+      <div class="space-y-3">
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Best use of the 16GB: Qwen3 14B Q6_K</h3>
+          <p class="text-sm text-base-400">
+            12.14GB weights, fits to ~18–20K context, ~17 tok/s. This is the config
+            that justifies the card — a 14B at near-Q8 quality with long context, which
+            a 12GB card can't hold. Just go in knowing ~17 tok/s is slower than the same
+            14B at Q4 on a 3060; you're spending speed to buy quality and context.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Better speed: Qwen3 14B Q4_K_M</h3>
+          <p class="text-sm text-base-400">
+            9.03GB weights, ~22 tok/s, with a large amount of the 16GB left for context.
+            If ~17 tok/s at Q6_K feels sluggish, dropping to Q4_K_M is noticeably faster
+            and still leaves far more headroom than a 12GB card would — a good default when
+            responsiveness matters more than the last increment of quality.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">Biggest model: Mistral Small 24B Q4_K_M</h3>
+          <p class="text-sm text-base-400">
+            14.64GB weights, short context only (roughly 4K before KV cache tips it over
+            16GB), ~14 tok/s. This is the 24B tier the extra 4GB unlocks — but it's tight
+            and slow. Worth it only when raw model capability matters more than speed or
+            long conversations; otherwise a 14B at Q6_K is the better all-round use of the card.
+          </p>
+        </div>
+
+        <div class="bg-base-900 border border-base-700 rounded-lg p-4">
+          <h3 class="font-semibold text-base-200 mb-1">The bandwidth reality</h3>
+          <p class="text-sm text-base-400">
+            The 4060 Ti 16GB's 128-bit bus gives 288 GB/s — narrower than the 3060's
+            192-bit/360 GB/s. It holds more but feeds it slower, landing about 20% fewer
+            tok/s than a 3060 on a model both can run. Choose this card for capacity — a
+            high-quant 14B or a 24B — not for speed. If your target model fits in 12GB, a
+            3060 will run it faster.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <section class="space-y-4 mb-10">
+      <h2 class="text-xl font-semibold text-base-50">Check any model or quant combination</h2>
+      <p class="text-base-400">
+        The table above covers the most common configurations, but you can check
+        any model, quantization, and context length combination — including KV
+        cache quantization and estimated decode speed for your specific GPU —
+        using the calculator.
+      </p>
+      <a
+        href="/tools/vram-calculator/"
+        class="inline-flex items-center gap-2 bg-accent-500 hover:bg-accent-400 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+      >
+        Open VRAM & Speed Calculator →
+      </a>
+    </section>
+
+    <section class="space-y-5">
+      <h2 class="text-xl font-semibold text-base-50">FAQ</h2>
+      {faqs.map((faq) => (
+        <div>
+          <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+          <p class="text-sm text-base-400">{faq.answer}</p>
+        </div>
+      ))}
+    </section>
+  </article>
+</BaseLayout>
