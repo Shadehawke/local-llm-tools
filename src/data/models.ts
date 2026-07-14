@@ -43,6 +43,14 @@ export interface ModelArchitecture {
    */
   numFullAttentionLayers?: number;
   /**
+   * True for linear-attention hybrids (Gated DeltaNet, e.g. Qwen3.6) where most
+   * layers use a fixed-size recurrent state instead of a growing KV cache. Does
+   * NOT change VRAM math — numFullAttentionLayers already handles KV sizing. It
+   * flags the speed estimate: recurrent-compute layers aren't bandwidth-bound,
+   * so real decode runs below the bandwidth prediction, especially at long context.
+   */
+  hasLinearAttention?: boolean;
+  /**
    * For sliding-window hybrid models where sliding and global layers have
    * DIFFERENT KV head counts and head dimensions (e.g. Gemma 4).
    * When present, the KV cache is computed as two separate terms:
@@ -178,6 +186,7 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     // which do not accumulate a standard KV cache. Using all 64 layers would
     // overcount KV cache by 4x. Verified from config.json (April 2026).
     numFullAttentionLayers: 16,
+    hasLinearAttention: true,
     numKvHeads: 4,
     headDim: 256,
     nativeContextLength: 262144,

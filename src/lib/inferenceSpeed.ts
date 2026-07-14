@@ -1,32 +1,42 @@
 import { type GpuEntry, INFERENCE_EFFICIENCY } from "../data/gpus";
 import { type ModelArchitecture } from "../data/models";
 import { type QuantFormat } from "../data/quants";
-import { calculateWeightsBytes } from "./vramCalculator";
+import { calculateWeightsBytes, calculateKvCacheBytes, type KvQuantPreset } from "./vramCalculator";
 
 const BYTES_PER_GIB = 1024 ** 3;
+const BYTES_PER_GB = 1e9;
 
 /**
  * Estimate decode tokens/sec for single-user local inference.
  *
- * LLM decode is memory-bandwidth-bound at batch size 1. Each token requires
- * reading all active model weights from memory once:
+ * LLM decode is memory-bandwidth-bound at batch size 1. Each token reads the
+ * active model weights once, plus the full KV cache at the current context
+ * length:
  *
- *   tokens/sec ≈ effective_bandwidth / weight_bytes_per_token
+ *   tokens/sec ≈ effective_bandwidth / (weight_bytes + kv_cache_bytes)
  *
  * For dense models: active weights = total weights.
  * For MoE models:   active weights = activeParamsBillion × bytesPerParam.
  *   Only the active expert subset is read per token — this is why MoE models
  *   run faster than their total param count suggests.
  *
- * Results are a ±20% ballpark. Actual speed varies with context length
- * (KV cache reads add overhead), backend (llama.cpp vs vLLM vs MLX),
- * and thermal/power limits.
+ * The KV term is why decode slows as context grows, and it uses the selected
+ * KV cache preset. Linear-attention hybrids (Gated DeltaNet, e.g. Qwen3.6) run a
+ * large share of layers as recurrent compute that isn't bandwidth-bound, so
+ * their real decode falls below this estimate — hasLinearAttention flags that.
+ *
+ * Results are a ±20% ballpark and a short-context best case; real speed also
+ * varies with backend (llama.cpp vs vLLM vs MLX) and thermal/power limits.
  */
 
 export interface SpeedEstimateInput {
   gpu: GpuEntry;
   model: ModelArchitecture;
   quant: QuantFormat;
+  /** Context length the estimate is for — KV cache read scales with this. */
+  contextLength: number;
+  /** KV cache quantization preset (F16/F16, Q8/Q8, etc.). */
+  kvPreset: KvQuantPreset;
   /** Only used when gpu.id === "custom". */
   customBandwidthGBs?: number;
 }
@@ -34,6 +44,10 @@ export interface SpeedEstimateInput {
 export interface SpeedEstimateResult {
   effectiveBandwidthGBs: number;
   weightBytesPerToken: number;
+  /** KV cache bytes read per token at the given context length. */
+  kvBytesPerToken: number;
+  /** Total bytes read per token (weights + KV). */
+  bytesPerToken: number;
   tokensPerSecond: number;
   /**
    * Speed tier based on community consensus for single-user interactive use:
@@ -49,7 +63,7 @@ export interface SpeedEstimateResult {
 }
 
 export function estimateInferenceSpeed(input: SpeedEstimateInput): SpeedEstimateResult {
-  const { gpu, model, quant } = input;
+  const { gpu, model, quant, contextLength, kvPreset } = input;
 
   const bandwidthGBs =
     gpu.id === "custom" && input.customBandwidthGBs
@@ -66,7 +80,13 @@ export function estimateInferenceSpeed(input: SpeedEstimateInput): SpeedEstimate
       : model.paramsBillion;
   const weightBytesPerToken = activeParams * 1e9 * quant.bytesPerParam;
 
-  const tokensPerSecond = effectiveBandwidthBytesPerSec / weightBytesPerToken;
+  // At batch 1, each decoded token re-reads the full KV cache at the current
+  // context length — the reason decode slows as context grows. Same KV math as
+  // the VRAM calculator, so only full-attention layers count.
+  const kvBytesPerToken = calculateKvCacheBytes(model, contextLength, 1, kvPreset);
+  const bytesPerToken = weightBytesPerToken + kvBytesPerToken;
+
+  const tokensPerSecond = effectiveBandwidthBytesPerSec / bytesPerToken;
 
   const totalWeightBytes = calculateWeightsBytes(model, quant);
   const vramBytes = gpu.vramGB * BYTES_PER_GIB;
@@ -81,18 +101,26 @@ export function estimateInferenceSpeed(input: SpeedEstimateInput): SpeedEstimate
           ? "slow"
           : "very_slow";
 
+  const hybridCaveat = model.hasLinearAttention
+    ? " This model uses linear-attention (DeltaNet) layers whose recurrent compute isn't bandwidth-bound, so real decode runs below this estimate, more so at long context."
+    : "";
+
   let explanation: string;
   if (requiresOffload) {
-    explanation = `Model weights (${(totalWeightBytes / BYTES_PER_GIB).toFixed(1)} GB) exceed VRAM (${gpu.vramGB} GB). This estimate assumes RAM offload — actual speed will be much lower, typically 1–5 tok/s depending on RAM bandwidth.`;
-  } else if (model.isMoE && model.activeParamsBillion) {
-    explanation = `MoE model: decode reads only the ${model.activeParamsBillion}B active parameters per token, not all ${model.paramsBillion}B. All parameters still occupy VRAM.`;
+    explanation = `Model weights (${(totalWeightBytes / BYTES_PER_GB).toFixed(1)} GB) exceed VRAM (${gpu.vramGB} GB). This estimate assumes RAM offload — actual speed will be much lower, typically 1–5 tok/s depending on RAM bandwidth.`;
   } else {
-    explanation = `Each token reads ${(weightBytesPerToken / BYTES_PER_GIB).toFixed(2)} GB of weights from ${gpu.bandwidthGBs} GB/s peak bandwidth (${(INFERENCE_EFFICIENCY * 100).toFixed(0)}% real-world efficiency applied). Treat as ±20% estimate.`;
+    const moeNote =
+      model.isMoE && model.activeParamsBillion
+        ? `MoE: only the ${model.activeParamsBillion}B active params are read per token (all ${model.paramsBillion}B stay resident). `
+        : "";
+    explanation = `${moeNote}At ${contextLength.toLocaleString()} context, each token reads ~${(bytesPerToken / BYTES_PER_GB).toFixed(2)} GB (weights + KV cache) from ${gpu.bandwidthGBs} GB/s peak bandwidth (${(INFERENCE_EFFICIENCY * 100).toFixed(0)}% real-world efficiency). Best case — treat as ±20%, and lower at long context.${hybridCaveat}`;
   }
 
   return {
     effectiveBandwidthGBs,
     weightBytesPerToken,
+    kvBytesPerToken,
+    bytesPerToken,
     tokensPerSecond,
     tier,
     requiresOffload,

@@ -97,11 +97,13 @@ export function findRunnableModels(
       if (est.totalGB > vramGB) continue;
 
       const speed = estimateInferenceSpeed({
-        gpu,
-        model,
-        quant,
-        customBandwidthGBs: options.customBandwidthGBs,
-      });
+          gpu,
+          model,
+          quant,
+          contextLength,
+          kvPreset,
+          customBandwidthGBs: options.customBandwidthGBs,
+        });
 
       const headroomGB = vramGB - est.totalGB;
       runnable.push({

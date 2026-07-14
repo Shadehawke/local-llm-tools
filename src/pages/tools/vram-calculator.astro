@@ -315,8 +315,12 @@ const faqSchema = {
       </dl>
 
       <div class="mt-6 pt-5 border-t border-base-700">
-        <p class="text-sm text-base-400 mb-1">Max context length that fits your VRAM:</p>
+        <p class="text-sm text-base-400 mb-1">Max context that fits in VRAM (weights + KV only):</p>
         <p id="result-max-context" class="text-2xl font-mono-display text-base-50">—</p>
+        <p class="text-xs text-base-400 mt-1 leading-relaxed">
+          Upper bound — real compute buffers grow with context, so usable context is lower,
+          and decode speed drops sharply approaching it.
+        </p>
       </div>
 
       <div class="mt-6 pt-5 border-t border-base-700">
@@ -598,7 +602,7 @@ const faqSchema = {
       const customBandwidth = gpuSelect.value === "custom"
         ? Number(customBandwidthInput.value) || undefined
         : undefined;
-      const speedResult = estimateInferenceSpeed({ gpu, model, quant, customBandwidthGBs: customBandwidth });
+      const speedResult = estimateInferenceSpeed({ gpu, model, quant, contextLength, kvPreset, customBandwidthGBs: customBandwidth });
       const speedDisplay = speedResult.tokensPerSecond >= 100
         ? `~${Math.round(speedResult.tokensPerSecond)} tok/s`
         : `~${speedResult.tokensPerSecond.toFixed(1)} tok/s`;
@@ -618,6 +622,7 @@ const faqSchema = {
       const tier = speedResult.tier as keyof typeof tierLabels;
       resultSpeedTier.textContent = tierLabels[tier];
       resultSpeedTier.className = `text-xs mt-1 ${tierColors[tier]}`;
+      resultSpeedExplanation.textContent = speedResult.explanation;
 
       const fits = result.totalGB <= availableVram;
       const maxContext = maxContextForVram(availableVram, model, quant, batchSize, kvPreset);
