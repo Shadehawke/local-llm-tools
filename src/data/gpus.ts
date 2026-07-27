@@ -250,6 +250,14 @@ export const GPU_ENTRIES: GpuEntry[] = [
     vendor: "amd",
     group: "AMD RX 6000/7000/9000",
   },
+  {
+    id: "r9700",
+    label: "Radeon AI PRO R9700 32GB",
+    bandwidthGBs: 640,
+    vramGB: 32,
+    vendor: "amd",
+    group: "AMD RX 6000/7000/9000",
+  },
 
   // ── Apple Silicon ─────────────────────────────────────────────────────────
   {
