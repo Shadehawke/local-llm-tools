@@ -57,7 +57,8 @@ const faqSchema = {
   <p class="text-base-400 mb-10 max-w-2xl">
     Estimate exact VRAM needed for model weights plus KV cache — the part most
     calculators skip, and the reason a model that loads fine at low context can
-    still run out of memory once you ask it something long.
+    still run out of memory once you ask it something long. Not sure which model to
+    start with? <a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what your GPU can run →</a>
   </p>
 
   <div class="grid md:grid-cols-2 gap-8">
@@ -258,7 +259,8 @@ const faqSchema = {
     <section class="bg-base-900 border border-base-700 rounded-xl p-6">
       <h2 class="text-lg font-semibold text-base-50 mb-4">Estimated VRAM usage</h2>
 
-      <div id="result-fit-banner" class="rounded-lg px-4 py-3 mb-5 font-medium"></div>
+      <div id="result-fit-banner" class="rounded-lg px-4 py-3 mb-2 font-medium"></div>
+      <p id="fit-next-step" class="hidden text-xs mb-5"></p>
 
       <dl class="space-y-3 font-mono-display text-sm">
         <div class="flex justify-between border-b border-base-700 pb-2">
@@ -480,6 +482,7 @@ const faqSchema = {
     const resultTotal = document.getElementById("result-total") as HTMLElement;
     const resultMaxContext = document.getElementById("result-max-context") as HTMLElement;
     const fitBanner = document.getElementById("result-fit-banner") as HTMLDivElement;
+    const fitNextStep = document.getElementById("fit-next-step") as HTMLParagraphElement;
     const turboQuantBody = document.getElementById("turbo-quant-body") as HTMLTableSectionElement;
 
     function getCurrentModel(): ModelArchitecture {
@@ -531,6 +534,7 @@ const faqSchema = {
         resultSpeed.textContent = "—";
         resultSpeedTier.textContent = "—";
         resultSpeedExplanation.textContent = "—";
+        fitNextStep.classList.add("hidden");
         fitBanner.textContent = "Enter custom model parameters to calculate.";
         fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-base-800 text-base-400";
         return;
@@ -630,11 +634,15 @@ const faqSchema = {
 
       if (fits) {
         fitBanner.textContent = `✓ Fits comfortably in ${availableVram}GB VRAM`;
-        fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-good/10 text-signal-good border border-signal-good/30";
+        fitBanner.className = "rounded-lg px-4 py-3 mb-2 font-medium bg-signal-good/10 text-signal-good border border-signal-good/30";
+        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See every model that fits in ${availableVram}GB →</a>`;
+        fitNextStep.classList.remove("hidden");
       } else {
         const overBy = result.totalGB - availableVram;
         fitBanner.textContent = `✗ Exceeds ${availableVram}GB VRAM by ${overBy.toFixed(2)}GB`;
-        fitBanner.className = "rounded-lg px-4 py-3 mb-5 font-medium bg-signal-bad/10 text-signal-bad border border-signal-bad/30";
+        fitBanner.className = "rounded-lg px-4 py-3 mb-2 font-medium bg-signal-bad/10 text-signal-bad border border-signal-bad/30";
+        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what does fit in ${availableVram}GB →</a>`;
+        fitNextStep.classList.remove("hidden");
       }
     }
 
