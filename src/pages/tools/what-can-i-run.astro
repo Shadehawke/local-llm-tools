@@ -47,6 +47,11 @@ const faqs = [
     answer:
       "Choose \"Custom\" and enter your VRAM and memory bandwidth directly. For a specific model, quant, and KV cache split — including I-quants and per-K/V quantization — use the VRAM calculator, which this tool is built on top of.",
   },
+  {
+    question: "Can I check a multi-GPU rig?",
+    answer:
+      "Yes, for matched cards — set the GPU count and the VRAM budget adds up across them, opening larger models than a single card can hold. But layer-split inference (llama.cpp's default) runs one GPU at a time, so decode speed stays roughly single-card even as VRAM scales, and the estimate reflects that. Tensor-parallel setups (vLLM) can do better and aren't modeled yet; mixed-GPU rigs aren't supported yet either.",
+  },
 ];
 
 const faqSchema = {
@@ -83,7 +88,7 @@ const faqSchema = {
 
     <!-- Inputs -->
     <div class="bg-base-900 border border-base-700 rounded-xl p-5 mb-8">
-      <div class="grid gap-4 sm:grid-cols-3">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <label class="block">
           <span class="block text-xs font-medium text-base-300 mb-1">Your GPU</span>
           <select
@@ -125,6 +130,26 @@ const faqSchema = {
             ))}
           </select>
         </label>
+
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">
+            GPUs <span class="text-base-500">(matched)</span>
+          </span>
+          <input
+            id="gpu-count"
+            type="number"
+            min="1"
+            max="8"
+            step="1"
+            value="1"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          />
+        </label>
+      </div>
+
+      <!-- Custom GPU fields, revealed only when "Custom" is selected -->
       </div>
 
       <!-- Custom GPU fields, revealed only when "Custom" is selected -->
@@ -152,6 +177,13 @@ const faqSchema = {
           />
         </label>
       </div>
+
+      <p id="multi-gpu-note" class="hidden text-xs text-base-400 mt-4 leading-relaxed">
+        <span class="text-base-300 font-medium">Matched cards, layer-split:</span> VRAM adds up
+        across GPUs, so larger models fit — but decode speed doesn't, because layers run one card
+        at a time, so throughput stays roughly single-card. Tensor-parallel (e.g. vLLM) can do
+        better, and mixed-GPU rigs aren't modeled yet.
+      </p>
     </div>
 
     <!-- Headline -->
@@ -268,6 +300,8 @@ const faqSchema = {
     import { findRunnableModels, type RunnableModel } from "../../lib/modelFinder";
 
     const gpuSelect = document.getElementById("gpu-select") as HTMLSelectElement;
+    const gpuCountInput = document.getElementById("gpu-count") as HTMLInputElement;
+    const multiGpuNote = document.getElementById("multi-gpu-note") as HTMLParagraphElement;
     const contextSelect = document.getElementById("context-select") as HTMLSelectElement;
     const kvSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
     const customFields = document.getElementById("custom-fields") as HTMLDivElement;
@@ -319,14 +353,22 @@ const faqSchema = {
       const contextLength = Number(contextSelect.value);
       const kvPreset = getKvPresetById(kvSelect.value);
 
+      const gpuCount = Math.max(1, Math.min(8, Math.floor(Number(gpuCountInput.value) || 1)));
+      multiGpuNote.classList.toggle("hidden", gpuCount <= 1);
+
       const customVramGB = Number(customVramInput.value) || gpu.vramGB;
       const customBandwidthGBs = Number(customBandwidthInput.value) || gpu.bandwidthGBs;
-      const vramGB = isCustom ? customVramGB : gpu.vramGB;
-      const gpuLabel = isCustom ? `${vramGB}GB custom GPU` : gpu.label;
+      const perCardVramGB = isCustom ? customVramGB : gpu.vramGB;
+      const vramBudgetGB = perCardVramGB * gpuCount;
+
+      const baseLabel = isCustom ? `${perCardVramGB}GB custom GPU` : gpu.label;
+      const gpuLabel =
+        gpuCount > 1 ? `${gpuCount}× ${baseLabel} (${vramBudgetGB} GB)` : baseLabel;
 
       const result = findRunnableModels(gpu, contextLength, kvPreset, {
         customVramGB,
         customBandwidthGBs,
+        gpuCount,
       });
 
       if (!result.headline) {
@@ -338,7 +380,7 @@ const faqSchema = {
         headlineEl.innerHTML = `
           <p class="text-xs uppercase tracking-wide text-accent-400 mb-1">Best model for your ${gpuLabel}</p>
           <p class="text-2xl font-bold text-base-50">${h.model.label} <span class="text-accent-400">${h.bestQuant.label}</span></p>
-          <p class="text-sm text-base-400 mt-2">${h.totalGB.toFixed(2)} GB used of ${vramGB} GB · ~${Math.round(h.tokensPerSecond)} tok/s · ${ctxLabel(contextLength)} context</p>`;
+          <p class="text-sm text-base-400 mt-2">${h.totalGB.toFixed(2)} GB used of ${vramBudgetGB} GB · ~${Math.round(h.tokensPerSecond)} tok/s · ${ctxLabel(contextLength)} context</p>`;
       }
 
       recommendedBody.innerHTML = result.recommended.map(rowHtml).join("");
@@ -348,7 +390,7 @@ const faqSchema = {
       reducedSection.classList.toggle("hidden", result.reduced.length === 0);
     }
 
-    [gpuSelect, contextSelect, kvSelect, customVramInput, customBandwidthInput].forEach((el) => {
+    [gpuSelect, contextSelect, kvSelect, gpuCountInput, customVramInput, customBandwidthInput].forEach((el) => {
       el.addEventListener("change", render);
       el.addEventListener("input", render);
     });

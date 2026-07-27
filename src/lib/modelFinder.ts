@@ -62,6 +62,11 @@ export interface FinderOptions {
   customVramGB?: number;
   /** Override bandwidth when gpu.id === "custom" (passed through to the speed estimate). */
   customBandwidthGBs?: number;
+  /**
+   * Number of matched GPUs (layer-split). VRAM budget scales with this; decode
+   * speed does not — layer-split runs one card at a time.
+   */
+  gpuCount?: number;
 }
 
 /**
@@ -76,8 +81,15 @@ export function findRunnableModels(
   kvPreset: KvQuantPreset,
   options: FinderOptions = {},
 ): FinderResult {
-  const vramGB =
+  const gpuCount = Math.max(1, Math.floor(options.gpuCount ?? 1));
+  const perCardVramGB =
     gpu.id === "custom" && options.customVramGB ? options.customVramGB : gpu.vramGB;
+  const vramBudgetGB = perCardVramGB * gpuCount;
+
+  // Speed estimate only: use aggregate VRAM so a model split across cards isn't
+  // flagged as RAM-offloaded. Bandwidth stays per-card — layer-split runs one
+  // GPU at a time, so decode throughput is bounded by a single card, not the sum.
+  const speedGpu = gpuCount > 1 ? { ...gpu, vramGB: vramBudgetGB } : gpu;
 
   const runnable: RunnableModel[] = [];
 
@@ -94,31 +106,32 @@ export function findRunnableModels(
         kvPreset,
       });
 
-      if (est.totalGB > vramGB) continue;
+      // Each card carries its own framework/CUDA overhead, so charge the
+      // per-card overhead N times, not once — a 3×24GB rig is ~70GB usable, not 72.
+      const totalGB = est.totalGB + (gpuCount - 1) * est.overheadGB;
+      if (totalGB > vramBudgetGB) continue;
 
       const speed = estimateInferenceSpeed({
-          gpu,
-          model,
-          quant,
-          contextLength,
-          kvPreset,
-          customBandwidthGBs: options.customBandwidthGBs,
-        });
+        gpu: speedGpu,
+        model,
+        quant,
+        contextLength,
+        kvPreset,
+        customBandwidthGBs: options.customBandwidthGBs,
+      });
 
-      const headroomGB = vramGB - est.totalGB;
+      const headroomGB = vramBudgetGB - totalGB;
       runnable.push({
         model,
         bestQuant: quant,
         weightsGB: est.weightsGB,
         kvCacheGB: est.kvCacheGB,
-        totalGB: est.totalGB,
+        totalGB,
         headroomGB,
         tokensPerSecond: speed.tokensPerSecond,
         speedTier: speed.tier,
-        // Within ~0.5GB free, or over 95% utilised: longer context or memory
-        // fragmentation can tip a nominal fit into an OOM — worth flagging.
         fitQuality:
-          headroomGB < 0.5 || est.totalGB / vramGB > 0.95 ? "tight" : "comfortable",
+          headroomGB < 0.5 || totalGB / vramBudgetGB > 0.95 ? "tight" : "comfortable",
         tier: RECOMMENDED_TIERS.has(quant.qualityTier) ? "recommended" : "reduced",
         usesExtrapolatedQuant: !quant.verified,
       });
