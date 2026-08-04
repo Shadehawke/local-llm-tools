@@ -1,0 +1,314 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { GPU_ENTRIES, type GpuEntry } from "../../data/gpus";
+import { MODEL_ARCHITECTURES } from "../../data/models";
+import { QUANT_FORMATS } from "../../data/quants";
+
+const title = "LLM Context Length Calculator — Max Context That Fits Your GPU";
+const description =
+  "See the maximum context length you can run for any model and quant on your GPU — and exactly how much more KV cache quantization (Q8, Q4) buys you. Built on the same engine as the VRAM calculator.";
+
+const gpuGroups = GPU_ENTRIES.reduce<Record<string, GpuEntry[]>>((acc, gpu) => {
+  (acc[gpu.group] ??= []).push(gpu);
+  return acc;
+}, {});
+
+const models = MODEL_ARCHITECTURES.filter((m) => m.id !== "custom");
+const quants = QUANT_FORMATS.filter((q) => q.family !== "legacy");
+
+const faqs = [
+  {
+    question: "How much context length can my GPU run?",
+    answer:
+      "It depends on three things: your VRAM, the model's weight size (set by quantization), and your KV cache setting. Weights take a fixed share of VRAM; whatever's left holds the KV cache, and context length is capped by how many tokens of KV cache fit. Pick your GPU, model, and quant above and this shows the max at full-precision, Q8, and Q4 KV cache.",
+  },
+  {
+    question: "Does KV cache quantization let me run longer context?",
+    answer:
+      "Yes, and it's usually the biggest lever. KV cache scales linearly with context, so halving its bit width roughly doubles the KV budget. Q8/Q8 is near-lossless — measured at under about 0.1% perplexity cost — and a cheaper way to gain context than dropping to a smaller weight quant, which costs more quality. Q4 fits the most, but its quality cost is asymmetric: the key (K) cache tolerates 4-bit reasonably while the value (V) cache degrades faster, so an asymmetric Q4-K/Q8-V setting usually beats symmetric Q4/Q4 at nearly the same size.",
+  },
+  {
+    question: "Can I run more context than a model's native length?",
+    answer:
+      "Fitting the KV cache in VRAM is a separate question from whether the model handles that length. Past its trained context a model needs RoPE/YaRN scaling to work at all, and even then quality degrades — often its ability to reliably use information far back in the context drops before the output starts to look wrong. Zero-shot scaling is usually passable up to roughly 4x native; beyond that, full quality needs the model to have been fine-tuned for the longer length. This tool shows the VRAM ceiling and flags the model's native length so you can see which one is actually binding.",
+  },
+  {
+    question: "Why does longer context need more VRAM?",
+    answer:
+      "Every token you keep in context is stored in the KV cache — the model's memory of the conversation so far — and it grows linearly with length. At long context the KV cache can match or exceed the model weights themselves: at 128K it can be several times the size of the weight file, which is why a model that loads fine at 4K can run out of memory at 64K.",
+  },
+  {
+    question: "Is KV cache quantization safe for every model?",
+    answer:
+      "Mostly, but not universally. Most standard GQA models tolerate Q8 KV cache with negligible quality loss and Q4 with modest, asymmetric loss (values suffer more than keys). But sensitivity is architecture-dependent — a few models degrade noticeably even at Q8, while some hybrid-attention models tolerate Q4 almost perfectly. The safe move is Q8 as a near-free default, and testing Q4 on your specific model before relying on it for anything precision-sensitive.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: { "@type": "Answer", text: faq.answer },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/tools/context-length-calculator/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/tools/" class="hover:text-base-200">Tools</a> /
+    <span class="text-base-200">Context Length Calculator</span>
+  </nav>
+
+  <div class="max-w-4xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">LLM Context Length Calculator</h1>
+    <p class="text-base-400 mb-8">
+      How much context can you actually run? Pick your GPU, model, and quant, and this shows
+      the maximum context length that fits your VRAM — plus how much further Q8 and Q4 KV cache
+      quantization get you. Built on the same engine as the 
+      <a href="/tools/vram-calculator/" class="text-accent-400 hover:underline"> VRAM calculator</a>, 
+      so the numbers match.
+    </p>
+
+    <!-- Inputs -->
+    <div class="bg-base-900 border border-base-700 rounded-xl p-5 mb-8">
+      <div class="grid gap-4 sm:grid-cols-3">
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Your GPU</span>
+          <select
+            id="gpu-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {Object.entries(gpuGroups).map(([group, gpus]) => (
+              <optgroup label={group}>
+                {gpus.map((gpu) => (
+                  <option value={gpu.id} selected={gpu.id === "rtx3060-12gb"}>
+                    {gpu.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Model</span>
+          <select
+            id="model-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {models.map((model) => (
+              <option value={model.id} selected={model.id === "qwen3-14b"}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Quantization</span>
+          <select
+            id="quant-select"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          >
+            {quants.map((quant) => (
+              <option value={quant.id} selected={quant.id === "q4_k_m"}>{quant.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div id="custom-fields" class="hidden gap-4 sm:grid-cols-2 mt-4">
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">VRAM (GB)</span>
+          <input
+            id="custom-vram-input"
+            type="number"
+            min="1"
+            step="1"
+            value="16"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100"
+          />
+        </label>
+      </div>
+    </div>
+
+    <!-- Headline -->
+    <div id="headline" class="bg-base-900 border border-accent-500/30 rounded-xl p-5 mb-4"></div>
+
+    <!-- No-fit hint -->
+    <div id="none-fit" class="hidden bg-base-900 border border-signal-bad/30 rounded-xl p-5 mb-4">
+      <p class="text-sm text-base-400">
+        The weights alone don't fit at this quant. Try a smaller quant, or
+        <a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline"> see what does fit on your GPU</a>.
+      </p>
+    </div>
+
+    <!-- Comparison table -->
+    <div id="comparison-wrap" class="mb-4">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+          <thead class="bg-base-800">
+            <tr class="text-left">
+              <th class="p-3 font-medium text-base-200">KV cache setting</th>
+              <th class="p-3 font-medium text-base-200">Max context that fits</th>
+              <th class="p-3 font-medium text-base-200">vs full precision</th>
+            </tr>
+          </thead>
+          <tbody id="comparison-body" class="font-mono-display text-sm"></tbody>
+        </table>
+      </div>
+      <p class="text-xs text-base-400 mt-2 leading-relaxed">
+        Upper bound — real compute buffers grow with context, so usable context is lower, and
+        decode speed drops sharply approaching the limit. Q8 KV cache is near-lossless (under
+        ~0.1% perplexity cost); symmetric Q4/Q4 fits the most but is where quality suffers,
+        since the value (V) cache tolerates 4-bit worse than the key (K) cache. The
+        <a href="/tools/vram-calculator/" class="text-accent-400 hover:underline"> full calculator </a>
+        has asymmetric Q4-K/Q8-V presets that recover most of that for a little more memory.
+      </p>
+    </div>
+
+    <!-- Native context note -->
+    <p id="native-note" class="hidden text-sm text-base-400 bg-base-900 border border-base-700 rounded-lg px-4 py-3 mb-8"></p>
+
+    <!-- Cross-link -->
+    <div class="bg-base-900 border border-accent-500/30 rounded-xl p-5 flex items-start justify-between gap-4 mb-14">
+      <div>
+        <h2 class="text-sm font-semibold text-base-50 mb-1">Want the full VRAM breakdown?</h2>
+        <p class="text-xs text-base-400">
+          See weights vs KV cache vs overhead at a specific context length, with per-K/V quant control.
+        </p>
+      </div>
+      <a
+        href="/tools/vram-calculator/"
+        class="shrink-0 text-xs border border-accent-500/40 text-accent-400 hover:bg-accent-500/10 rounded-lg px-3 py-2 transition-colors whitespace-nowrap"
+      >
+        Open VRAM Calculator →
+      </a>
+    </div>
+
+    <!-- How this works -->
+    <section class="space-y-4 mb-14 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">How this works</h2>
+      <p class="text-base-400">
+        Model weights take a fixed share of your VRAM once you pick a quant. Whatever's left,
+        after a small overhead reserve, holds the KV cache — and since KV cache grows linearly
+        with context length, the max context is simply how many tokens of KV cache fit in that
+        remaining space. This tool solves that inversely for each KV cache setting, using the
+        same VRAM math as the main calculator, so the two never disagree.
+      </p>
+      <p class="text-base-400">
+        The reason KV quantization is the biggest lever for context: it directly shrinks the
+        per-token cost. F16 stores 2 bytes each for the key and value (4 per position); Q8 stores
+        1 each (2 total); Q4 stores half a byte each (1 total). Halve those bytes and you roughly
+        double the context budget — a cheaper way to gain context than dropping to a smaller weight
+        quant, and with less quality cost, since Q8 KV is near-lossless while a weight-quant step
+        is not.
+      </p>
+    </section>
+
+    <section class="space-y-5 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">FAQ</h2>
+      {faqs.map((faq) => (
+        <div>
+          <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+          <p class="text-sm text-base-400">{faq.answer}</p>
+        </div>
+      ))}
+    </section>
+  </div>
+
+  <script>
+    import { getGpuById } from "../../data/gpus";
+    import { getModelById } from "../../data/models";
+    import { getQuantById } from "../../data/quants";
+    import { getKvPresetById, maxContextForVram } from "../../lib/vramCalculator";
+
+    const gpuSelect = document.getElementById("gpu-select") as HTMLSelectElement;
+    const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
+    const quantSelect = document.getElementById("quant-select") as HTMLSelectElement;
+    const customFields = document.getElementById("custom-fields") as HTMLDivElement;
+    const customVramInput = document.getElementById("custom-vram-input") as HTMLInputElement;
+    const headlineEl = document.getElementById("headline") as HTMLDivElement;
+    const noneFitEl = document.getElementById("none-fit") as HTMLDivElement;
+    const comparisonWrap = document.getElementById("comparison-wrap") as HTMLDivElement;
+    const comparisonBody = document.getElementById("comparison-body") as HTMLTableSectionElement;
+    const nativeNote = document.getElementById("native-note") as HTMLParagraphElement;
+
+    // The three settings the tool compares, safest first.
+    const COMPARE = [
+      { id: "f16_f16", label: "F16 / F16 (full precision, safest)" },
+      { id: "q8_q8", label: "Q8 / Q8 (near-lossless)" },
+      { id: "q4_q4", label: "Q4 / Q4 (aggressive; V-cache suffers)" },
+    ];
+
+    const fmtCtx = (n: number): string =>
+      n >= 10000 ? (Math.floor(n / 1000) * 1000).toLocaleString() : n.toLocaleString();
+
+    function render(): void {
+      const gpu = getGpuById(gpuSelect.value);
+      const isCustom = gpu.id === "custom";
+      customFields.classList.toggle("hidden", !isCustom);
+      customFields.classList.toggle("grid", isCustom);
+
+      const vramGB = isCustom ? Number(customVramInput.value) || gpu.vramGB : gpu.vramGB;
+      const gpuLabel = isCustom ? `${vramGB}GB custom GPU` : gpu.label;
+      const model = getModelById(modelSelect.value);
+      const quant = getQuantById(quantSelect.value);
+
+      const results = COMPARE.map((c) => ({
+        ...c,
+        maxCtx: maxContextForVram(vramGB, model, quant, 1, getKvPresetById(c.id)),
+      }));
+      const f16Max = results[0].maxCtx;
+
+      if (f16Max <= 0) {
+        headlineEl.innerHTML = `<p class="text-lg font-semibold text-base-200">${model.label} at ${quant.label} doesn't fit in ${gpuLabel} — the weights alone are over budget.</p>`;
+        noneFitEl.classList.remove("hidden");
+        comparisonWrap.classList.add("hidden");
+        nativeNote.classList.add("hidden");
+        return;
+      }
+      noneFitEl.classList.add("hidden");
+      comparisonWrap.classList.remove("hidden");
+
+      headlineEl.innerHTML = `
+        <p class="text-xs uppercase tracking-wide text-accent-400 mb-1">Max context on your ${gpuLabel}</p>
+        <p class="text-2xl font-bold text-base-50">${model.label} <span class="text-accent-400">${quant.label}</span> fits ~${fmtCtx(f16Max)} tokens</p>
+        <p class="text-sm text-base-400 mt-2">at full-precision KV cache — more with Q8 or Q4 below.</p>`;
+
+      comparisonBody.innerHTML = results
+        .map((r) => {
+          const ratio = r.maxCtx / f16Max;
+          const ratioCell = r.id === "f16_f16" ? "—" : `${ratio.toFixed(1)}× the context`;
+          return `
+            <tr class="border-t border-base-700">
+              <td class="p-3 text-base-200">${r.label}</td>
+              <td class="p-3 text-base-50">~${fmtCtx(r.maxCtx)} tokens</td>
+              <td class="p-3 text-base-400">${ratioCell}</td>
+            </tr>`;
+        })
+        .join("");
+
+      // Which ceiling is actually binding — VRAM or the model's trained length?
+      const native = model.nativeContextLength;
+      if (f16Max >= native) {
+        nativeNote.innerHTML = `Your VRAM allows more context than <strong class="text-base-200">${model.label}</strong>'s native length of ${native.toLocaleString()} tokens. Fitting the KV cache isn't the same as the model handling that length — past its trained context it needs RoPE/YaRN scaling, and its ability to reliably use information far back in the context degrades even when the output still reads fine. Native context, not VRAM, is the real limit here.`;
+      } else {
+        nativeNote.innerHTML = `<strong class="text-base-200">${model.label}</strong> natively supports ${native.toLocaleString()} tokens, but your VRAM caps you below that at full-precision KV. Q8 or Q4 KV cache can close the gap — see the table above.`;
+      }
+      nativeNote.classList.remove("hidden");
+    }
+
+    [gpuSelect, modelSelect, quantSelect, customVramInput].forEach((el) => {
+      el.addEventListener("change", render);
+      el.addEventListener("input", render);
+    });
+
+    render();
+  </script>
+</BaseLayout>

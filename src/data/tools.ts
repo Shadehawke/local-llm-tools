@@ -26,6 +26,13 @@ export const TOOLS: ToolEntry[] = [
     status: "live",
   },
   {
+    slug: "context-length-calculator",
+    title: "Context Length Calculator",
+    shortDescription:
+      "See the max context length that fits your GPU — and how much more Q8/Q4 KV cache buys you.",
+    status: "live",
+  },
+  {
     slug: "gguf-size-estimator",
     title: "GGUF Size Estimator",
     shortDescription: "Estimate GGUF file size before downloading, by quant level.",
