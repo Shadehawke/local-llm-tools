@@ -323,8 +323,11 @@ const faqSchema = {
         <p id="result-max-context" class="text-2xl font-mono-display text-base-50">—</p>
         <p class="text-xs text-base-400 mt-1 leading-relaxed">
           Upper bound — real compute buffers grow with context, so usable context is lower,
-          and decode speed drops sharply approaching it.
+          and decode speed drops sharply approaching the limit.
         </p>
+        <a href="/tools/context-length-calculator/" class="inline-block text-xs text-accent-400 hover:text-accent-300 underline mt-2">
+          Compare max context at F16 / Q8 / Q4 KV cache →
+        </a>
       </div>
 
       <div class="mt-6 pt-5 border-t border-base-700">
