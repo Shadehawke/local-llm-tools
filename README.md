@@ -18,7 +18,7 @@ unjustified complexity for what the UI actually needs.
 
 ## Project structure
 
-​```
+```
 src/
   data/           # Static datasets:
                   #   models.ts   — model architectures (verified vs config.json)
@@ -44,7 +44,8 @@ src/
       rtx-3060-local-llm.astro           # Hardware guide (organic play)
       rtx-4090-local-llm.astro           # Hardware guide — 24GB / 32B tier
       rtx-4060-ti-16gb-local-llm.astro   # Hardware guide — 16GB / bandwidth tradeoff
-​```
+​
+```
 
 ## The pattern for adding a new tool
 
