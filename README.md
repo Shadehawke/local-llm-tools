@@ -23,22 +23,27 @@ src/
   data/           # Static datasets:
                   #   models.ts   — model architectures (verified vs config.json)
                   #   quants.ts   — GGUF quant bytes-per-param (calibrated)
-                  #   gpus.ts     — GPU bandwidth dataset (TechPowerUp + Apple)
+                  #   gpus.ts     — GPU bandwidth dataset (TechPowerUp + AMD + Apple)
                   #   tools.ts    — tool registry (homepage + /tools auto-generated)
   lib/            # Pure calculation functions (no DOM, no Astro):
                   #   vramCalculator.ts  — weights + split-K/V KV cache + overhead
-                  #   inferenceSpeed.ts  — decode tok/s from GPU bandwidth
+                  #   inferenceSpeed.ts  — decode tok/s, context/KV-aware
+                  #   modelFinder.ts     — reverse lookup: best model that fits a GPU
   layouts/        # BaseLayout.astro — shared shell, SEO meta, OpenGraph, analytics
   components/     # (empty for now — extract shared UI here once 2+ tools need it)
   pages/
     index.astro       # Homepage
     tools/
-      index.astro     # Tools listing page
-      vram-calculator.astro   # Flagship tool — template to copy for tools 2-8
+      index.astro                     # Tools listing page
+      vram-calculator.astro           # Flagship tool — weights + KV + speed
+      what-can-i-run.astro            # Reverse calc: best model for your GPU (multi-GPU aware)
+      context-length-calculator.astro # Max context at F16 / Q8 / Q4 KV cache
     guides/
-      index.astro     # Guides listing page
+      index.astro                        # Guides listing page
       vram-calculator-comparison.astro   # Methodology comparison article
-      rtx-3060-local-llm.astro           # Hardware-specific guide (organic play)
+      rtx-3060-local-llm.astro           # Hardware guide (organic play)
+      rtx-4090-local-llm.astro           # Hardware guide — 24GB / 32B tier
+      rtx-4060-ti-16gb-local-llm.astro   # Hardware guide — 16GB / bandwidth tradeoff
 ​```
 
 ## The pattern for adding a new tool
@@ -52,7 +57,9 @@ src/
    checked against an actual Qwen3-14B load) before building UI on top of it.
 3. **Page file in `src/pages/tools/`.** Copy `vram-calculator.astro`'s structure:
    - Frontmatter: title, description, FAQ array, FAQ schema JSON-LD
-   - Two-column grid: inputs left, results right
+   - Layout: two-column (inputs left, results right) for compact output like the
+     VRAM calculator, or a stacked inputs-bar over full-width results for wide
+     tabular output like What Can I Run? / Context Length
    - `<script>` block at the bottom that imports from `lib/` and `data/`, wires up
      `addEventListener`, and calls a `recalculate()` function on every input change
    - "How this is calculated" section explaining the formula honestly — this is the
@@ -62,7 +69,7 @@ src/
 5. **Build and check.** `npm run build` — catches type errors and broken imports
    before you ever open a browser.
 
-## Data verification status (last checked July 2026)
+## Data verification status (last checked August 2026)
 
 **Model architectures** (`src/data/models.ts`): all 12 models cross-checked
 directly against published `config.json` files on Hugging Face (or technical
@@ -79,20 +86,34 @@ cross-checked against Llama-3.1-70B), and all are marked `verified: true`.
 A prior pass had inflated the Q4-and-up K-quants by ~7.4% by treating
 decimal-GB file sizes as GiB before dividing by params; that's corrected,
 and the weights figure now matches what LM Studio/Ollama report byte-for-byte.
-The I-quant band (IQ2_M and up) is calibrated as a multi-model average but
-runs slightly rich against single-model 8B sizes — a re-derivation is the
-next calibration cleanup (see roadmap).
+The I-quant band was re-derived from measured bartowski Llama-3.1-8B GGUF
+sizes (÷8.03), cross-checked against Llama-3-70B, and anchored to 8B — the
+same rule as the K-quants. Every quant in the file now follows one
+calibration rule, so the weights figure matches LM Studio/Ollama across the
+whole ladder.
 
 ## Roadmap / open items
 
-- **I-quant re-derivation** — the IQ2_M–IQ4_NL band runs ~4-5% rich vs single-
-  model 8B file sizes; re-derive as a multi-model average and re-verify.
-- **Hardware guides** — RTX 4090 (70B tier) and RTX 4060 Ti 16GB (the serious-
-  hobbyist VRAM tier), using the RTX 3060 guide as the template.
-- **Reverse calculator** — "given my GPU, what's the best model I can run?"
-  The GPU bandwidth dataset (`src/data/gpus.ts`) is already in place.
-- **Watch Search Console** for the first non-brand queries — those tell you
-  which GPU/model guide to write next; don't build blind ahead of that signal.
+- **CPU/RAM MoE inference mode** — model running big MoE (DeepSeek V3, Qwen3
+  MoE, GLM, Kimi) mostly/entirely in system RAM. Fit = total params ≤ RAM;
+  decode speed = DDR bandwidth ÷ active-param bytes (same roofline math, RAM
+  bandwidth substituted). New inputs: RAM capacity + DDR bandwidth. v1 = pure
+  CPU/unified-memory only; defer hybrid GPU+CPU expert offload (`--n-cpu-moe`)
+  and NVMe streaming. Real second modeling domain — scope deliberately, don't
+  bolt on. (Requested repeatedly in r/LocalLLM.)
+- **Mixed-GPU + tensor-parallel** — multi-GPU currently assumes matched cards,
+  layer-split (VRAM sums, decode stays single-card). Two requested extensions:
+  heterogeneous rigs (per-card layer allocation, tightest card binds), and
+  tensor-parallel modeling — the only mode where PCIe lane/gen inputs actually
+  move tok/s (mainline `--split-mode tensor` landed April 2026 but is
+  interconnect-bound on consumer PCIe, so it often loses to layer-split there).
+- **Distribution over features** — the binding constraint is now traffic, not
+  tool surface. Search baseline has lifted (page-2 position, ~230 impressions/
+  3mo, non-brand + hardware-guide queries landing) but clicks are still small.
+  Highest-leverage work is showing up helpfully in r/LocalLLM / r/LocalLLaMA
+  threads. When building content, let recurring Search Console queries pick the
+  target — the context-length tool came straight from that signal; don't build
+  blind ahead of it.
 
 ## Local development
 
