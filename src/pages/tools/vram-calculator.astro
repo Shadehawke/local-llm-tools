@@ -6,9 +6,9 @@ import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
 import type { TurboQuantEstimate } from "../../lib/vramCalculator";
 import { GPU_ENTRIES } from "../../data/gpus";
 
-const title = "Local LLM VRAM & Speed Calculator — Will It Fit, and How Fast?";
+const title = "Local LLM VRAM & GPU Memory Calculator — Will It Fit, and How Fast?";
 const description =
-  "Calculate VRAM needed and estimated inference speed (tokens/sec) for Qwen3, Llama 3.1, Mistral, Gemma 4, Llama 4, and other models. Includes KV cache, hybrid attention, MoE, and Apple Silicon.";
+  "Calculate GPU memory (VRAM) usage and estimated inference speed (tokens/sec) for Qwen3, Llama 3.1, Mistral, Gemma 4, Llama 4, and more — model weights plus KV cache, with hybrid attention, MoE, and Apple Silicon support.";
 
 const faqs = [
   {
@@ -53,9 +53,9 @@ const faqSchema = {
     <span class="text-base-200">VRAM Calculator</span>
   </nav>
 
-  <h1 class="text-3xl font-bold text-base-50 mb-3">VRAM Calculator for Local LLMs</h1>
+  <h1 class="text-3xl font-bold text-base-50 mb-3">VRAM &amp; GPU Memory Calculator for Local LLMs</h1>
   <p class="text-base-400 mb-10 max-w-2xl">
-    Estimate exact VRAM needed for model weights plus KV cache — the part most
+    Estimate exact VRAM (GPU memory) needed for model weights plus KV cache — the part most
     calculators skip, and the reason a model that loads fine at low context can
     still run out of memory once you ask it something long. Not sure which model to
     start with? <a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what your GPU can run →</a>
