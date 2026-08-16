@@ -108,6 +108,34 @@ export const MODEL_ARCHITECTURES: ModelArchitecture[] = [
     nativeContextLength: 40960,
   },
   {
+    id: "qwen3-30b-a3b",
+    label: "Qwen3-30B-A3B",
+    paramsBillion: 30.5,
+    isMoE: true,
+    activeParamsBillion: 3.3,
+    numLayers: 48,
+    numKvHeads: 4,
+    headDim: 128,
+    // Standard MoE (Qwen3MoeForCausalLM) — no linear/sliding attention.
+    // Verified from config.json (num_hidden_layers 48, num_key_value_heads 4,
+    // head_dim 128, max_position_embeddings 40960, 128 experts / 8 active).
+    nativeContextLength: 40960,
+  },
+  {
+    id: "qwen3-235b-a22b",
+    label: "Qwen3-235B-A22B",
+    paramsBillion: 235,
+    isMoE: true,
+    activeParamsBillion: 22,
+    numLayers: 94,
+    numKvHeads: 4,
+    headDim: 128,
+    // Standard MoE (Qwen3MoeForCausalLM) — no linear/sliding attention.
+    // Verified from config.json (num_hidden_layers 94, num_key_value_heads 4,
+    // head_dim 128, max_position_embeddings 40960, 128 experts / 8 active).
+    nativeContextLength: 40960,
+  },
+  {
     id: "llama3.1-8b",
     label: "Llama 3.1 8B",
     paramsBillion: 8.03,
