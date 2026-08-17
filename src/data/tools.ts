@@ -33,6 +33,13 @@ export const TOOLS: ToolEntry[] = [
     status: "live",
   },
   {
+    slug: "ram-calculator",
+    title: "RAM Calculator",
+    shortDescription:
+      "Can you run a model on CPU / system RAM, and how fast? Built for big MoE models on RAM-heavy rigs.",
+    status: "live",
+  },
+  {
     slug: "gguf-size-estimator",
     title: "GGUF Size Estimator",
     shortDescription: "Estimate GGUF file size before downloading, by quant level.",

@@ -1,0 +1,290 @@
+---
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { MODEL_ARCHITECTURES } from "../../data/models";
+import { QUANT_FORMATS } from "../../data/quants";
+import { MEMORY_CONFIGS } from "../../data/memoryConfigs";
+import { KV_QUANT_PRESETS } from "../../lib/vramCalculator";
+
+const title = "Local LLM RAM Calculator — Run Models on CPU / System Memory";
+const description =
+  "Check whether a model fits in your system RAM and estimate CPU decode speed — for running large MoE models like Qwen3-235B on CPU or unified memory without a GPU.";
+
+const models = MODEL_ARCHITECTURES.filter((m) => m.id !== "custom");
+const quants = QUANT_FORMATS.filter((q) => q.family !== "legacy");
+
+const contextOptions = [
+  { value: 4096, label: "4K (4,096)" },
+  { value: 8192, label: "8K (8,192)" },
+  { value: 16384, label: "16K (16,384)" },
+  { value: 32768, label: "32K (32,768)" },
+  { value: 65536, label: "64K (65,536)" },
+  { value: 131072, label: "128K (131,072)" },
+  { value: 262144, label: "256K (262,144)" },
+];
+
+const faqs = [
+  {
+    question: "How much RAM do I need to run an LLM locally?",
+    answer:
+      "Enough to hold the entire model at your chosen quantization, plus the KV cache and a small overhead. Unlike GPU inference, all of the model's weights must fit in system RAM even for MoE models — only a fraction is active per token, but every expert has to be resident. Pick your model, quant, and RAM above and this shows whether it fits and roughly how fast it'll generate on CPU.",
+  },
+  {
+    question: "Can I run a large model on CPU without a GPU?",
+    answer:
+      "Yes, and it's increasingly common with Mixture-of-Experts (MoE) models. Because only a small share of an MoE's parameters activate per token, models that would never fit in consumer VRAM run at usable speeds in system RAM. The binding constraints become RAM capacity (to hold all the weights) and memory bandwidth (which sets decode speed), not GPU VRAM.",
+  },
+  {
+    question: "Why can a 235B MoE run on CPU but a 70B dense model crawls?",
+    answer:
+      "Decode speed is set by how many bytes must be read from memory per token. A dense 70B reads all 70B parameters every token. An MoE like Qwen3-235B-A22B reads only its ~22B active parameters per token, even though all 235B must be resident in RAM. So the MoE has ~3x less to read per token despite being far larger overall — that's why it generates faster on the same memory bandwidth. This calculator uses active parameters for the speed estimate and total parameters for the fit check.",
+  },
+  {
+    question: "How accurate are these CPU speed estimates?",
+    answer:
+      "They're feasibility ballparks, ±30%. Decode on CPU is memory-bandwidth-bound, so speed is estimated as effective bandwidth divided by bytes-read-per-token, at roughly 50% real-world bandwidth efficiency (calibrated against measured runs, and lower than the ~70% GPUs achieve). Actual speed varies more than on GPU — the inference engine matters a lot (ik_llama.cpp's fused MoE kernels beat mainline llama.cpp), as do NUMA layout and CPU generation. Treat the number as 'is this feasible and roughly how fast,' not a precise figure.",
+  },
+  {
+    question: "Does this include prompt processing speed?",
+    answer:
+      "No — this estimates decode (token generation) only. Prompt processing (prefill) on CPU is compute-bound rather than bandwidth-bound and is dramatically slower, especially for long prompts. If you feed a long document to a model running on CPU, the wait before the first token can be much longer than the decode speed here suggests.",
+  },
+  {
+    question: "What about running partly on GPU and partly in system RAM?",
+    answer:
+      "Hybrid GPU+CPU offload (e.g. keeping attention layers on a GPU while experts live in RAM, via llama.cpp's --n-cpu-moe) is a real and effective setup, but it isn't modeled here yet — this tool assumes pure CPU or unified-memory inference. Hybrid offload is on the roadmap.",
+  },
+];
+
+const faqSchema = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqs.map((faq) => ({
+    "@type": "Question",
+    name: faq.question,
+    acceptedAnswer: { "@type": "Answer", text: faq.answer },
+  })),
+};
+---
+
+<BaseLayout title={title} description={description} path="/tools/ram-calculator/">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+  </Fragment>
+
+  <nav class="text-sm text-base-400 mb-6">
+    <a href="/" class="hover:text-base-200">Home</a> /
+    <a href="/tools/" class="hover:text-base-200">Tools</a> /
+    <span class="text-base-200">RAM Calculator</span>
+  </nav>
+
+  <div class="max-w-4xl">
+    <h1 class="text-3xl font-bold text-base-50 mb-3">LLM RAM Calculator — Run Models on CPU</h1>
+    <p class="text-base-400 mb-8">
+      Can you run a model in system RAM (CPU or unified memory), and how fast? This is the
+      case that opens up with large Mixture-of-Experts models — only a fraction of the
+      parameters activate per token, so models far too big for consumer VRAM run at usable
+      speeds in RAM. Pick your model, quant, and memory, and see whether it fits and roughly
+      how fast it'll decode. Uses the same weight and KV cache math as the
+      <a href="/tools/vram-calculator/" class="text-accent-400 hover:underline">VRAM calculator</a>.
+    </p>
+
+    <!-- Inputs -->
+    <div class="bg-base-900 border border-base-700 rounded-xl p-5 mb-8">
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Model</span>
+          <select id="model-select" class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100">
+            {models.map((model) => (
+              <option value={model.id} selected={model.id === "qwen3-30b-a3b"}>{model.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Quantization</span>
+          <select id="quant-select" class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100">
+            {quants.map((quant) => (
+              <option value={quant.id} selected={quant.id === "q4_k_m"}>{quant.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">System RAM (GB)</span>
+          <input id="ram-input" type="number" min="1" step="1" value="64"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100" />
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Memory config</span>
+          <select id="memory-select" class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100">
+            {MEMORY_CONFIGS.map((cfg) => (
+              <option value={cfg.id} selected={cfg.id === "ddr5-6000-dual"}>{cfg.label} — {cfg.bandwidthGBs} GB/s</option>
+            ))}
+            <option value="custom">Custom bandwidth…</option>
+          </select>
+        </label>
+
+        <label id="custom-bw-field" class="hidden">
+          <span class="block text-xs font-medium text-base-300 mb-1">Bandwidth (GB/s)</span>
+          <input id="custom-bandwidth-input" type="number" min="1" step="1" value="100"
+            class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100" />
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">Context length</span>
+          <select id="context-select" class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100">
+            {contextOptions.map((opt) => (
+              <option value={opt.value} selected={opt.value === 8192}>{opt.label}</option>
+            ))}
+          </select>
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-base-300 mb-1">KV cache</span>
+          <select id="kv-preset-select" class="w-full bg-base-800 border border-base-700 rounded-lg px-3 py-2 text-sm text-base-100">
+            {KV_QUANT_PRESETS.map((preset) => (
+              <option value={preset.id}>{preset.label}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+
+    <!-- Headline -->
+    <div id="headline" class="bg-base-900 border border-accent-500/30 rounded-xl p-5 mb-4"></div>
+
+    <!-- MoE callout -->
+    <div id="moe-callout" class="hidden bg-base-900 border border-accent-500/20 rounded-xl p-4 mb-4">
+      <p class="text-sm text-base-300"></p>
+    </div>
+
+    <!-- Breakdown -->
+    <div class="overflow-x-auto mb-4">
+      <table class="w-full text-sm border border-base-700 rounded-lg overflow-hidden">
+        <tbody id="breakdown-body" class="font-mono-display text-sm"></tbody>
+      </table>
+    </div>
+
+    <!-- Caveats -->
+    <div class="bg-base-900 border border-signal-warn/25 rounded-xl p-4 mb-14">
+      <p class="text-xs text-base-400 leading-relaxed">
+        <span class="text-signal-warn font-medium">Read the estimate as a feasibility ballpark (±30%).</span>
+        This is <strong class="text-base-300">decode speed only</strong> — prompt processing (prefill) on CPU is
+        compute-bound and much slower, so long prompts mean a longer wait before the first token. Speed also
+        depends heavily on your inference engine (ik_llama.cpp beats mainline llama.cpp for MoE), NUMA layout,
+        and CPU. Assumes <strong class="text-base-300">pure CPU / unified memory</strong>; hybrid GPU+CPU offload
+        isn't modeled yet. Running on a GPU or a Mac? Use the
+        <a href="/tools/vram-calculator/" class="text-accent-400 hover:underline">VRAM calculator</a> — it handles
+        unified-memory Macs directly.
+      </p>
+    </div>
+
+    <!-- How this works -->
+    <section class="space-y-4 mb-14 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">How this works</h2>
+      <p class="text-base-400">
+        Two separate questions. <strong class="text-base-300">Fit:</strong> every parameter has to live in RAM,
+        so the model's full weight size at your quant, plus the KV cache and a small overhead, must be under your
+        installed memory — computed with the exact same math as the VRAM calculator. For an MoE, that means all
+        235B of a 235B-A22B model must be resident, even though only 22B run per token.
+      </p>
+      <p class="text-base-400">
+        <strong class="text-base-300">Speed:</strong> CPU decode is memory-bandwidth-bound — each token requires
+        reading the active weights plus the KV cache from RAM. So tokens/sec ≈ memory bandwidth ÷ bytes-per-token,
+        at about 50% real-world efficiency (calibrated against measured runs; CPUs realise less of peak bandwidth
+        than GPUs). For MoE models the per-token read is the <em>active</em> parameters, which is the whole reason a
+        235B model is viable in RAM while a dense 70B is painfully slow — the MoE simply has less to read each token.
+      </p>
+    </section>
+
+    <section class="space-y-5 max-w-3xl">
+      <h2 class="text-2xl font-bold text-base-50">FAQ</h2>
+      {faqs.map((faq) => (
+        <div>
+          <h3 class="font-semibold text-base-200 mb-1">{faq.question}</h3>
+          <p class="text-sm text-base-400">{faq.answer}</p>
+        </div>
+      ))}
+    </section>
+  </div>
+
+  <script>
+    import { getModelById } from "../../data/models";
+    import { getQuantById } from "../../data/quants";
+    import { getMemoryConfigById } from "../../data/memoryConfigs";
+    import { getKvPresetById } from "../../lib/vramCalculator";
+    import { estimateRamInference } from "../../lib/ramCalculator";
+
+    const modelSelect = document.getElementById("model-select") as HTMLSelectElement;
+    const quantSelect = document.getElementById("quant-select") as HTMLSelectElement;
+    const ramInput = document.getElementById("ram-input") as HTMLInputElement;
+    const memorySelect = document.getElementById("memory-select") as HTMLSelectElement;
+    const customBwField = document.getElementById("custom-bw-field") as HTMLLabelElement;
+    const customBwInput = document.getElementById("custom-bandwidth-input") as HTMLInputElement;
+    const contextSelect = document.getElementById("context-select") as HTMLSelectElement;
+    const kvSelect = document.getElementById("kv-preset-select") as HTMLSelectElement;
+    const headlineEl = document.getElementById("headline") as HTMLDivElement;
+    const moeCallout = document.getElementById("moe-callout") as HTMLDivElement;
+    const breakdownBody = document.getElementById("breakdown-body") as HTMLTableSectionElement;
+
+    const row = (label: string, value: string, strong = false): string => `
+      <tr class="border-t border-base-700 first:border-t-0">
+        <td class="p-3 text-base-400">${label}</td>
+        <td class="p-3 text-right ${strong ? "text-base-50 font-semibold" : "text-base-200"}">${value}</td>
+      </tr>`;
+
+    function render(): void {
+      const model = getModelById(modelSelect.value);
+      const quant = getQuantById(quantSelect.value);
+      const ramGB = Number(ramInput.value) || 0;
+      const contextLength = Number(contextSelect.value);
+      const kvPreset = getKvPresetById(kvSelect.value);
+
+      const isCustomBw = memorySelect.value === "custom";
+      customBwField.classList.toggle("hidden", !isCustomBw);
+      const bandwidthGBs = isCustomBw
+        ? Number(customBwInput.value) || 0
+        : getMemoryConfigById(memorySelect.value).bandwidthGBs;
+
+      const r = estimateRamInference({ model, quant, ramGB, bandwidthGBs, contextLength, kvPreset });
+
+      const tps = Math.round(r.tokensPerSecond);
+      const lo = Math.max(0, Math.round(r.tokensPerSecond * 0.7));
+      const hi = Math.round(r.tokensPerSecond * 1.3);
+
+      if (!r.fits) {
+        headlineEl.innerHTML = `
+          <p class="text-xs uppercase tracking-wide text-signal-bad mb-1">Doesn't fit in ${ramGB} GB RAM</p>
+          <p class="text-2xl font-bold text-base-50">${model.label} <span class="text-accent-400">${quant.label}</span> needs ${r.totalGB.toFixed(1)} GB</p>
+          <p class="text-sm text-base-400 mt-2">Try a smaller quant, or ${(r.totalGB).toFixed(0)}+ GB of RAM. All weights must be resident, even for MoE.</p>`;
+      } else {
+        headlineEl.innerHTML = `
+          <p class="text-xs uppercase tracking-wide text-accent-400 mb-1">Fits in ${ramGB} GB RAM</p>
+          <p class="text-2xl font-bold text-base-50">${model.label} <span class="text-accent-400">${quant.label}</span> · ~${tps} tok/s</p>
+          <p class="text-sm text-base-400 mt-2">${r.totalGB.toFixed(1)} GB used of ${ramGB} GB · roughly ${lo}–${hi} tok/s decode at ${bandwidthGBs} GB/s · ${contextLength.toLocaleString()} context</p>`;
+      }
+
+      if (r.isMoE) {
+        moeCallout.classList.remove("hidden");
+        (moeCallout.querySelector("p") as HTMLParagraphElement).innerHTML =
+          `<span class="text-accent-400 font-medium">MoE:</span> all ${r.totalParamsBillion}B parameters sit in RAM, but only <strong class="text-base-200">${r.activeParamsBillion}B are read per token</strong> — that's why a model this size decodes at a usable speed on CPU.`;
+      } else {
+        moeCallout.classList.add("hidden");
+      }
+
+      breakdownBody.innerHTML =
+        row("Weights", `${r.weightsGB.toFixed(2)} GB`) +
+        row("KV cache", `${r.kvCacheGB.toFixed(2)} GB`) +
+        row("Overhead", `${r.overheadGB.toFixed(2)} GB`) +
+        row("Total RAM needed", `${r.totalGB.toFixed(2)} GB`, true);
+    }
+
+    [modelSelect, quantSelect, ramInput, memorySelect, customBwInput, contextSelect, kvSelect].forEach((el) => {
+      el.addEventListener("change", render);
+      el.addEventListener("input", render);
+    });
+
+    render();
+  </script>
+</BaseLayout>
