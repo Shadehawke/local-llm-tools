@@ -640,13 +640,13 @@ const faqSchema = {
       if (fits) {
         fitBanner.textContent = `✓ Fits comfortably in ${availableVram}GB VRAM`;
         fitBanner.className = "rounded-lg px-4 py-3 mb-2 font-medium bg-signal-good/10 text-signal-good border border-signal-good/30";
-        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See every model that fits in ${availableVram}GB →</a>`;
+        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what does fit in ${availableVram}GB →</a> <span class="text-base-500">·</span> <a href="/tools/ram-calculator/" class="text-accent-300 hover:text-accent-200 underline">Run it on system RAM instead →</a>`;
         fitNextStep.classList.remove("hidden");
       } else {
         const overBy = result.totalGB - availableVram;
         fitBanner.textContent = `✗ Exceeds ${availableVram}GB VRAM by ${overBy.toFixed(2)}GB`;
         fitBanner.className = "rounded-lg px-4 py-3 mb-2 font-medium bg-signal-bad/10 text-signal-bad border border-signal-bad/30";
-        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what does fit in ${availableVram}GB →</a>`;
+        fitNextStep.innerHTML = `<a href="/tools/what-can-i-run/" class="text-accent-300 hover:text-accent-200 underline">See what does fit in ${availableVram}GB →</a> <span class="text-base-500">·</span> <a href="/tools/ram-calculator/" class="text-accent-300 hover:text-accent-200 underline">Run it on system RAM instead →</a>`;
         fitNextStep.classList.remove("hidden");
       }
     }
